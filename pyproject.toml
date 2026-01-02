@@ -1,0 +1,9 @@
+[project]
+name = "llm-router"
+version = "0.1.0"
+description = "Unified Python SDK for chat completions across multiple AI providers"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "requests>=2.32.5",
+]
