@@ -2,8 +2,8 @@
 Tests for Google (Gemini) Provider.
 """
 
-import pytest
 import responses
+
 from providers.google_provider import GoogleProvider
 
 
@@ -23,7 +23,9 @@ class TestGoogleProviderProperties:
     def test_endpoint_includes_model(self, mock_api_key):
         """Test endpoint includes model name."""
         provider = GoogleProvider(api_key=mock_api_key)
-        assert provider.get_endpoint("gemini-2.0-flash") == "/models/gemini-2.0-flash:generateContent"
+        assert (
+            provider.get_endpoint("gemini-2.0-flash") == "/models/gemini-2.0-flash:generateContent"
+        )
 
     def test_headers(self, mock_api_key):
         """Test headers include API key."""
@@ -174,11 +176,17 @@ class TestGoogleTransformResponse:
         """Test STOP maps to stop."""
         provider = GoogleProvider(api_key=mock_api_key)
         response = {
-            "candidates": [{
-                "content": {"parts": [{"text": "Done"}], "role": "model"},
-                "finishReason": "STOP",
-            }],
-            "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5, "totalTokenCount": 15},
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": "Done"}], "role": "model"},
+                    "finishReason": "STOP",
+                }
+            ],
+            "usageMetadata": {
+                "promptTokenCount": 10,
+                "candidatesTokenCount": 5,
+                "totalTokenCount": 15,
+            },
         }
 
         result = provider.transform_response(response)
@@ -189,11 +197,17 @@ class TestGoogleTransformResponse:
         """Test MAX_TOKENS maps to length."""
         provider = GoogleProvider(api_key=mock_api_key)
         response = {
-            "candidates": [{
-                "content": {"parts": [{"text": "Truncated"}], "role": "model"},
-                "finishReason": "MAX_TOKENS",
-            }],
-            "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 100, "totalTokenCount": 110},
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": "Truncated"}], "role": "model"},
+                    "finishReason": "MAX_TOKENS",
+                }
+            ],
+            "usageMetadata": {
+                "promptTokenCount": 10,
+                "candidatesTokenCount": 100,
+                "totalTokenCount": 110,
+            },
         }
 
         result = provider.transform_response(response)
@@ -204,11 +218,17 @@ class TestGoogleTransformResponse:
         """Test SAFETY maps to content_filter."""
         provider = GoogleProvider(api_key=mock_api_key)
         response = {
-            "candidates": [{
-                "content": {"parts": [{"text": ""}], "role": "model"},
-                "finishReason": "SAFETY",
-            }],
-            "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 0, "totalTokenCount": 10},
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": ""}], "role": "model"},
+                    "finishReason": "SAFETY",
+                }
+            ],
+            "usageMetadata": {
+                "promptTokenCount": 10,
+                "candidatesTokenCount": 0,
+                "totalTokenCount": 10,
+            },
         }
 
         result = provider.transform_response(response)
@@ -230,10 +250,20 @@ class TestGoogleTransformResponse:
         provider = GoogleProvider(api_key=mock_api_key)
         response = {
             "candidates": [
-                {"content": {"parts": [{"text": "Response 1"}], "role": "model"}, "finishReason": "STOP"},
-                {"content": {"parts": [{"text": "Response 2"}], "role": "model"}, "finishReason": "STOP"},
+                {
+                    "content": {"parts": [{"text": "Response 1"}], "role": "model"},
+                    "finishReason": "STOP",
+                },
+                {
+                    "content": {"parts": [{"text": "Response 2"}], "role": "model"},
+                    "finishReason": "STOP",
+                },
             ],
-            "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 20, "totalTokenCount": 30},
+            "usageMetadata": {
+                "promptTokenCount": 10,
+                "candidatesTokenCount": 20,
+                "totalTokenCount": 30,
+            },
         }
 
         result = provider.transform_response(response)
@@ -248,14 +278,20 @@ class TestGoogleTransformResponse:
         """Test multiple text parts are concatenated."""
         provider = GoogleProvider(api_key=mock_api_key)
         response = {
-            "candidates": [{
-                "content": {
-                    "parts": [{"text": "First "}, {"text": "Second"}],
-                    "role": "model",
-                },
-                "finishReason": "STOP",
-            }],
-            "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 10, "totalTokenCount": 20},
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [{"text": "First "}, {"text": "Second"}],
+                        "role": "model",
+                    },
+                    "finishReason": "STOP",
+                }
+            ],
+            "usageMetadata": {
+                "promptTokenCount": 10,
+                "candidatesTokenCount": 10,
+                "totalTokenCount": 20,
+            },
         }
 
         result = provider.transform_response(response)
@@ -325,6 +361,7 @@ class TestGoogleIntegration:
 
         # Verify request was transformed
         import json
+
         request_body = json.loads(responses.calls[0].request.body)
         assert "contents" in request_body
         assert "systemInstruction" in request_body

@@ -3,19 +3,19 @@ Tests for Provider Factory.
 """
 
 import pytest
+
+from providers.anthropic_provider import AnthropicProvider
 from providers.factory import (
-    ProviderFactory,
-    OpenAIFactory,
+    FACTORY_REGISTRY,
     AnthropicFactory,
     GoogleFactory,
-    FACTORY_REGISTRY,
+    OpenAIFactory,
+    ProviderFactory,
     get_factory,
     register_factory,
 )
-from providers.openai_provider import OpenAIProvider
-from providers.anthropic_provider import AnthropicProvider
 from providers.google_provider import GoogleProvider
-from providers.base import BaseProvider
+from providers.openai_provider import OpenAIProvider
 
 
 class TestFactoryRegistry:
@@ -76,6 +76,7 @@ class TestRegisterFactory:
 
     def test_register_new_factory(self, mock_api_key):
         """Test registering a new factory."""
+
         # Create a mock factory
         class MockFactory(ProviderFactory):
             @property
@@ -210,6 +211,7 @@ class TestProviderFactoryABC:
 
     def test_must_implement_create_provider(self):
         """Test subclass must implement create_provider."""
+
         class IncompleteFactory(ProviderFactory):
             @property
             def provider_name(self):
@@ -220,6 +222,7 @@ class TestProviderFactoryABC:
 
     def test_must_implement_provider_name(self):
         """Test subclass must implement provider_name."""
+
         class IncompleteFactory(ProviderFactory):
             def create_provider(self, api_key, **kwargs):
                 pass

@@ -1,11 +1,12 @@
 """
 Anthropic Provider.
-Transforms OpenAI format <-> Anthropic format.
+Transforms OpenAI format to Anthropic format
 """
 
-from typing import Dict, Any
 import time
 import uuid
+from typing import Any
+
 from providers.base import BaseProvider
 
 
@@ -23,17 +24,17 @@ class AnthropicProvider(BaseProvider):
     def provider_name(self) -> str:
         return "anthropic"
 
-    def get_headers(self) -> Dict[str, str]:
+    def get_headers(self) -> dict[str, str]:
         return {
             "x-api-key": self.api_key,
             "Content-Type": "application/json",
-            "anthropic-version": "2023-06-01"
+            "anthropic-version": "2023-06-01",
         }
 
-    def get_endpoint(self, model: str = None) -> str:
+    def get_endpoint(self, model: str | None = None) -> str:
         return "/messages"
 
-    def transform_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+    def transform_request(self, request: dict[str, Any]) -> dict[str, Any]:
         """
         Transform OpenAI format request to Anthropic format.
 
@@ -63,10 +64,7 @@ class AnthropicProvider(BaseProvider):
             else:
                 # Map OpenAI roles to Anthropic roles
                 anthropic_role = "assistant" if role == "assistant" else "user"
-                anthropic_messages.append({
-                    "role": anthropic_role,
-                    "content": content
-                })
+                anthropic_messages.append({"role": anthropic_role, "content": content})
 
         anthropic_request["messages"] = anthropic_messages
 
@@ -78,7 +76,6 @@ class AnthropicProvider(BaseProvider):
         if "temperature" in request:
             anthropic_request["temperature"] = request["temperature"]
 
-
         # Pass through Anthropic-specific parameters
         # These are params that Anthropic supports but OpenAI doesn't
         anthropic_specific_params = ["top_k", "metadata"]
@@ -88,7 +85,9 @@ class AnthropicProvider(BaseProvider):
 
         return anthropic_request
 
-    def transform_response(self, response: Dict[str, Any], model: str = None) -> Dict[str, Any]:
+    def transform_response(
+        self, response: dict[str, Any], model: str | None = None
+    ) -> dict[str, Any]:
         """
         Transform Anthropic format response to OpenAI format.
 
@@ -127,12 +126,9 @@ class AnthropicProvider(BaseProvider):
             "end_turn": "stop",
             "stop_sequence": "stop",
             "max_tokens": "length",
-            "tool_use": "tool_calls"
+            "tool_use": "tool_calls",
         }
-        finish_reason = stop_reason_map.get(
-            response.get("stop_reason", "end_turn"),
-            "stop"
-        )
+        finish_reason = stop_reason_map.get(response.get("stop_reason", "end_turn"), "stop")
 
         # Build OpenAI format response
         usage = response.get("usage", {})
@@ -147,18 +143,15 @@ class AnthropicProvider(BaseProvider):
             "choices": [
                 {
                     "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": content
-                    },
-                    "finish_reason": finish_reason
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": finish_reason,
                 }
             ],
             "usage": {
                 "prompt_tokens": input_tokens,
                 "completion_tokens": output_tokens,
-                "total_tokens": input_tokens + output_tokens
-            }
+                "total_tokens": input_tokens + output_tokens,
+            },
         }
 
         return openai_response

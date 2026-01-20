@@ -4,7 +4,7 @@ Each provider has its own factory class for creating instances.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict
+
 from providers.base import BaseProvider
 
 
@@ -44,6 +44,7 @@ class OpenAIFactory(ProviderFactory):
 
     def create_provider(self, api_key: str, **kwargs) -> BaseProvider:
         from providers.openai_provider import OpenAIProvider
+
         return OpenAIProvider(api_key=api_key, **kwargs)
 
 
@@ -56,6 +57,7 @@ class AnthropicFactory(ProviderFactory):
 
     def create_provider(self, api_key: str, **kwargs) -> BaseProvider:
         from providers.anthropic_provider import AnthropicProvider
+
         return AnthropicProvider(api_key=api_key, **kwargs)
 
 
@@ -68,11 +70,12 @@ class GoogleFactory(ProviderFactory):
 
     def create_provider(self, api_key: str, **kwargs) -> BaseProvider:
         from providers.google_provider import GoogleProvider
+
         return GoogleProvider(api_key=api_key, **kwargs)
 
 
 # Factory Registry - maps provider names to factory instances
-FACTORY_REGISTRY: Dict[str, ProviderFactory] = {
+FACTORY_REGISTRY: dict[str, ProviderFactory] = {
     "openai": OpenAIFactory(),
     "anthropic": AnthropicFactory(),
     "google": GoogleFactory(),
@@ -94,10 +97,7 @@ def get_factory(provider_name: str) -> ProviderFactory:
     """
     if provider_name not in FACTORY_REGISTRY:
         available = ", ".join(FACTORY_REGISTRY.keys())
-        raise ValueError(
-            f"Unknown provider: '{provider_name}'. "
-            f"Available providers: {available}"
-        )
+        raise ValueError(f"Unknown provider: '{provider_name}'. Available providers: {available}")
     return FACTORY_REGISTRY[provider_name]
 
 

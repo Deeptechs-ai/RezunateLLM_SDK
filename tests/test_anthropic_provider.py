@@ -2,8 +2,8 @@
 Tests for Anthropic Provider.
 """
 
-import pytest
 import responses
+
 from providers.anthropic_provider import AnthropicProvider
 
 
@@ -269,6 +269,7 @@ class TestAnthropicIntegration:
 
         # Verify request was transformed
         import json
+
         request_body = json.loads(responses.calls[0].request.body)
         assert "system" in request_body
         assert request_body["system"] == "You are a helpful assistant."

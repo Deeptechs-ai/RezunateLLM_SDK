@@ -3,7 +3,6 @@ Shared test fixtures for LLM Router tests.
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
 import responses
 
 
@@ -107,9 +106,7 @@ def google_response():
         "candidates": [
             {
                 "content": {
-                    "parts": [
-                        {"text": "Hello! How can I assist you today?"}
-                    ],
+                    "parts": [{"text": "Hello! How can I assist you today?"}],
                     "role": "model",
                 },
                 "finishReason": "STOP",

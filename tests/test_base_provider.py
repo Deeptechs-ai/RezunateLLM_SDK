@@ -4,9 +4,12 @@ Tests for BaseProvider class.
 
 import pytest
 import responses
-import requests
-from unittest.mock import patch, MagicMock
-from providers.base import BaseProvider, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY, RETRYABLE_STATUS_CODES
+
+from providers.base import (
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_RETRY_DELAY,
+    BaseProvider,
+)
 
 
 class ConcreteProvider(BaseProvider):

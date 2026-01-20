@@ -3,9 +3,10 @@ Google (Gemini) Provider.
 Transforms OpenAI format <-> Google Gemini format.
 """
 
-from typing import Dict, Any
 import time
 import uuid
+from typing import Any
+
 from providers.base import BaseProvider
 
 
@@ -26,41 +27,27 @@ class GoogleProvider(BaseProvider):
     def provider_name(self) -> str:
         return "google"
 
-    def get_headers(self) -> Dict[str, str]:
-        return {
-            "Content-Type": "application/json",
-            "x-goog-api-key": self.api_key
-        }
+    def get_headers(self) -> dict[str, str]:
+        return {"Content-Type": "application/json", "x-goog-api-key": self.api_key}
 
     def get_endpoint(self, model: str = None) -> str:
         return f"/models/{model}:generateContent"
 
-    def transform_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Transform OpenAI format request to Google Gemini format.
+    def transform_request(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Transform OpenAI format request to Google Gemini format.
 
-        OpenAI format:
-        {
-            "model": "...",
-            "messages": [
-                {"role": "system", "content": "..."},
-                {"role": "user", "content": "..."}
-            ]
-        }
+        Converts messages to Google's contents format, maps 'assistant' role to 'model',
+        extracts system messages to systemInstruction, and maps generation parameters.
 
-        Google Gemini format:
-        {
-            "contents": [
-                {"role": "user", "parts": [{"text": "..."}]}
-            ],
-            "systemInstruction": {"parts": [{"text": "..."}]},
-            "generationConfig": {...}
-        }
+        Args:
+            request: OpenAI-formatted request containing messages, model, and optional
+                parameters like temperature, max_tokens, top_k, safety_settings, and tools.
+
+        Returns:
+            Google Gemini-formatted request with contents, systemInstruction (if present),
+            and generationConfig.
         """
-        google_request = {
-            "contents": [],
-            "generationConfig": {}
-        }
+        google_request = {"contents": []}
 
         # Extract system message and regular messages
         messages = request.get("messages", [])
@@ -73,19 +60,14 @@ class GoogleProvider(BaseProvider):
             if role == "system":
                 system_content = content
             else:
-                # Map OpenAI roles to Google roles
-                # Google uses "user" and "model" (not "assistant")
                 google_role = "model" if role == "assistant" else "user"
-                google_request["contents"].append({
-                    "role": google_role,
-                    "parts": [{"text": content}]
-                })
+                google_request["contents"].append(
+                    {"role": google_role, "parts": [{"text": content}]}
+                )
 
         # Add system instruction if present
         if system_content:
-            google_request["systemInstruction"] = {
-                "parts": [{"text": system_content}]
-            }
+            google_request["systemInstruction"] = {"parts": [{"text": system_content}]}
 
         # Map generation config
         generation_config = {}
@@ -114,35 +96,18 @@ class GoogleProvider(BaseProvider):
 
         return google_request
 
-    def transform_response(self, response: Dict[str, Any], model: str = None) -> Dict[str, Any]:
-        """
-        Transform Google Gemini format response to OpenAI format.
+    def transform_response(self, response: dict[str, Any], model: str = None) -> dict[str, Any]:
+        """Transform Google Gemini format response to OpenAI format.
 
-        Google Gemini response:
-        {
-            "candidates": [{
-                "content": {
-                    "parts": [{"text": "..."}],
-                    "role": "model"
-                },
-                "finishReason": "STOP"
-            }],
-            "usageMetadata": {
-                "promptTokenCount": X,
-                "candidatesTokenCount": Y,
-                "totalTokenCount": Z
-            }
-        }
+        Converts candidates to choices, maps 'model' role to 'assistant',
+        translates finish reasons, and normalizes usage metadata.
 
-        OpenAI format:
-        {
-            "id": "chatcmpl-...",
-            "object": "chat.completion",
-            "created": timestamp,
-            "model": "...",
-            "choices": [{...}],
-            "usage": {...}
-        }
+        Args:
+            response: Google Gemini response containing candidates and usageMetadata.
+            model: Model name to include in the response.
+
+        Returns:
+            OpenAI-formatted response with id, object, created, model, choices, and usage.
         """
         # Extract content from candidates
         choices = []
@@ -161,21 +126,17 @@ class GoogleProvider(BaseProvider):
                 "MAX_TOKENS": "length",
                 "SAFETY": "content_filter",
                 "RECITATION": "content_filter",
-                "OTHER": "stop"
+                "OTHER": "stop",
             }
-            finish_reason = finish_reason_map.get(
-                candidate.get("finishReason", "STOP"),
-                "stop"
-            )
+            finish_reason = finish_reason_map.get(candidate.get("finishReason", "STOP"), "stop")
 
-            choices.append({
-                "index": idx,
-                "message": {
-                    "role": "assistant",
-                    "content": content
-                },
-                "finish_reason": finish_reason
-            })
+            choices.append(
+                {
+                    "index": idx,
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": finish_reason,
+                }
+            )
 
         # Extract usage metadata
         usage_metadata = response.get("usageMetadata", {})
@@ -192,8 +153,8 @@ class GoogleProvider(BaseProvider):
             "usage": {
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
-                "total_tokens": total_tokens
-            }
+                "total_tokens": total_tokens,
+            },
         }
 
         return openai_response

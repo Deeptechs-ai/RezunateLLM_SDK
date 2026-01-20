@@ -2,8 +2,8 @@
 Tests for OpenAI Provider.
 """
 
-import pytest
 import responses
+
 from providers.openai_provider import OpenAIProvider
 
 

@@ -1,65 +1,52 @@
 """
 Gateway - Main Router.
+
 This is the entry point for all chat completion requests.
 Routes requests to the appropriate provider.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Any
+
 from providers import get_provider, list_providers
+
+__all__ = ["chat_complete", "get_available_providers", "Gateway"]
 
 
 def chat_complete(
     provider: str,
     api_key: str,
     model: str,
-    messages: List[Dict[str, str]],
-    temperature: Optional[float] = None,
-    max_tokens: Optional[int] = None,
-    **kwargs
-) -> Dict[str, Any]:
+    messages: list[dict[str, str]],
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    **kwargs: Any,
+) -> dict[str, Any]:
     """
     Execute chat completion with any provider.
 
-    All requests use OpenAI format.
-    All responses return OpenAI format.
+    All requests and responses use OpenAI format as the universal standard.
 
     Args:
-        provider: Provider name ("openai", "anthropic", "google")
-        api_key: API key for the provider
-        model: Model name (e.g., "gpt-4", "claude-3-sonnet-20240229", "gemini-pro")
-        messages: List of messages in OpenAI format
-                  [{"role": "user", "content": "Hello"}]
-        temperature: Sampling temperature (0-2)
-        max_tokens: Maximum tokens to generate
-        **kwargs: Additional provider-specific parameters
+        provider: Provider name ("openai", "anthropic", "google").
+        api_key: API key for the provider.
+        model: Model name (e.g., "gpt-4", "claude-sonnet-4-20250514", "gemini-2.0-flash").
+        messages: List of messages in OpenAI format.
+            Example: [{"role": "user", "content": "Hello"}]
+        temperature: Sampling temperature (0-2).
+        max_tokens: Maximum tokens to generate.
+        **kwargs: Additional provider-specific parameters.
 
     Returns:
-        OpenAI format response:
-        {
-            "id": "chatcmpl-...",
-            "object": "chat.completion",
-            "created": 1234567890,
-            "model": "...",
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": "..."},
-                "finish_reason": "stop"
-            }],
-            "usage": {
-                "prompt_tokens": 10,
-                "completion_tokens": 20,
-                "total_tokens": 30
-            },
-            "provider": "openai"
-        }
+        Response dictionary in OpenAI format containing id, object, created,
+        model, choices, usage, and provider fields.
 
     Example:
         >>> response = chat_complete(
         ...     provider="anthropic",
         ...     api_key="sk-ant-...",
-        ...     model="claude-3-sonnet-20240229",
+        ...     model="claude-sonnet-4-20250514",
         ...     messages=[{"role": "user", "content": "Hello!"}],
-        ...     max_tokens=100
+        ...     max_tokens=100,
         ... )
         >>> print(response["choices"][0]["message"]["content"])
     """
@@ -86,54 +73,70 @@ def chat_complete(
     return response
 
 
-def get_available_providers() -> List[str]:
+def get_available_providers() -> list[str]:
     """
     Get list of available providers.
 
     Returns:
-        List of provider names
+        List of provider names.
     """
     return list_providers()
 
 
-# Convenience class for object-oriented usage
 class Gateway:
     """
     Gateway class for object-oriented usage.
 
+    Allows setting default provider and API key for convenience.
+
     Example:
-        >>> gateway = Gateway()
+        >>> gateway = Gateway(default_provider="openai", default_api_key="sk-...")
         >>> response = gateway.chat_complete(
-        ...     provider="openai",
-        ...     api_key="sk-...",
         ...     model="gpt-4",
-        ...     messages=[{"role": "user", "content": "Hello"}]
+        ...     messages=[{"role": "user", "content": "Hello"}],
         ... )
     """
 
-    def __init__(self, default_provider: Optional[str] = None, default_api_key: Optional[str] = None):
+    def __init__(
+        self,
+        default_provider: str | None = None,
+        default_api_key: str | None = None,
+    ) -> None:
         """
         Initialize Gateway.
 
         Args:
-            default_provider: Default provider to use
-            default_api_key: Default API key to use
+            default_provider: Default provider to use.
+            default_api_key: Default API key to use.
         """
         self.default_provider = default_provider
         self.default_api_key = default_api_key
 
     def chat_complete(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         model: str,
-        provider: Optional[str] = None,
-        api_key: Optional[str] = None,
-        **kwargs
-    ) -> Dict[str, Any]:
+        provider: str | None = None,
+        api_key: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         """
         Execute chat completion.
 
-        Uses default provider/api_key if not specified.
+        Uses default provider and api_key if not specified.
+
+        Args:
+            messages: List of messages in OpenAI format.
+            model: Model name to use.
+            provider: Provider name (uses default if not specified).
+            api_key: API key (uses default if not specified).
+            **kwargs: Additional provider-specific parameters.
+
+        Returns:
+            Response dictionary in OpenAI format.
+
+        Raises:
+            ValueError: If provider or api_key is not specified and no default is set.
         """
         provider = provider or self.default_provider
         api_key = api_key or self.default_api_key
@@ -144,14 +147,10 @@ class Gateway:
             raise ValueError("API key must be specified")
 
         return chat_complete(
-            provider=provider,
-            api_key=api_key,
-            model=model,
-            messages=messages,
-            **kwargs
+            provider=provider, api_key=api_key, model=model, messages=messages, **kwargs
         )
 
     @property
-    def providers(self) -> List[str]:
+    def providers(self) -> list[str]:
         """Get available providers."""
         return get_available_providers()

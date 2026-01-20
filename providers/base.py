@@ -3,12 +3,12 @@ Base Provider Class.
 All providers inherit from this class.
 """
 
-from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
-import requests
-import time
 import random
+import time
+from abc import ABC, abstractmethod
+from typing import Any
 
+import requests
 
 # Retry configuration
 DEFAULT_MAX_RETRIES = 3
@@ -28,7 +28,7 @@ class BaseProvider(ABC):
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_delay: float = DEFAULT_RETRY_DELAY,
         timeout: float = 60.0,
-        **kwargs
+        **kwargs,
     ):
         self.api_key = api_key
         self.max_retries = max_retries
@@ -48,7 +48,7 @@ class BaseProvider(ABC):
         pass
 
     @abstractmethod
-    def get_headers(self) -> Dict[str, str]:
+    def get_headers(self) -> dict[str, str]:
         """Return the headers required for API calls."""
         pass
 
@@ -58,7 +58,7 @@ class BaseProvider(ABC):
         pass
 
     @abstractmethod
-    def transform_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+    def transform_request(self, request: dict[str, Any]) -> dict[str, Any]:
         """
         Transform OpenAI format request to provider's format.
         For OpenAI provider, this returns the request unchanged.
@@ -66,7 +66,7 @@ class BaseProvider(ABC):
         pass
 
     @abstractmethod
-    def transform_response(self, response: Dict[str, Any], model: str = None) -> Dict[str, Any]:
+    def transform_response(self, response: dict[str, Any], model: str = None) -> dict[str, Any]:
         """
         Transform provider's response to OpenAI format.
         For OpenAI provider, this returns the response unchanged.
@@ -76,15 +76,15 @@ class BaseProvider(ABC):
     def _calculate_backoff(self, attempt: int) -> float:
         """Calculate exponential backoff with jitter."""
         # Exponential backoff: delay * 2^attempt + random jitter
-        backoff = self.retry_delay * (2 ** attempt)
+        backoff = self.retry_delay * (2**attempt)
         jitter = random.uniform(0, backoff * 0.1)
         return backoff + jitter
 
-    def _is_retryable(self, status_code: Optional[int]) -> bool:
+    def _is_retryable(self, status_code: int | None) -> bool:
         """Check if the error is retryable based on status code."""
         return status_code in RETRYABLE_STATUS_CODES
 
-    def chat_complete(self, request: Dict[str, Any]) -> Dict[str, Any]:
+    def chat_complete(self, request: dict[str, Any]) -> dict[str, Any]:
         """
         Execute chat completion with retry logic.
 
@@ -108,10 +108,7 @@ class BaseProvider(ABC):
         for attempt in range(self.max_retries + 1):
             try:
                 response = requests.post(
-                    url,
-                    headers=self.get_headers(),
-                    json=provider_request,
-                    timeout=self.timeout
+                    url, headers=self.get_headers(), json=provider_request, timeout=self.timeout
                 )
                 response.raise_for_status()
                 provider_response = response.json()
@@ -123,7 +120,9 @@ class BaseProvider(ABC):
 
             except requests.exceptions.RequestException as e:
                 last_error = e
-                status_code = getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
+                status_code = (
+                    getattr(e.response, "status_code", None) if hasattr(e, "response") else None
+                )
 
                 # Check if we should retry
                 is_timeout = isinstance(e, requests.exceptions.Timeout)
@@ -146,16 +145,14 @@ class BaseProvider(ABC):
             "created": int(time.time()),
             "model": model,
             "choices": [],
-            "usage": {
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0
-            },
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             "provider": self.provider_name,
             "error": {
                 "message": str(last_error),
                 "type": "api_error",
-                "code": getattr(last_error.response, 'status_code', None) if hasattr(last_error, 'response') else None,
-                "retries_attempted": attempt
-            }
+                "code": getattr(last_error.response, "status_code", None)
+                if hasattr(last_error, "response")
+                else None,
+                "retries_attempted": attempt,
+            },
         }

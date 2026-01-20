@@ -4,7 +4,8 @@ Tests for Gateway (main router).
 
 import pytest
 import responses
-from gateway import chat_complete, get_available_providers, Gateway
+
+from gateway import Gateway, chat_complete, get_available_providers
 
 
 class TestChatComplete:
@@ -90,6 +91,7 @@ class TestChatComplete:
         )
 
         import json
+
         request_body = json.loads(responses.calls[0].request.body)
         assert request_body["temperature"] == 0.5
 
@@ -112,6 +114,7 @@ class TestChatComplete:
         )
 
         import json
+
         request_body = json.loads(responses.calls[0].request.body)
         assert request_body["max_tokens"] == 100
 
@@ -135,6 +138,7 @@ class TestChatComplete:
         )
 
         import json
+
         request_body = json.loads(responses.calls[0].request.body)
         assert request_body["top_p"] == 0.9
         assert request_body["frequency_penalty"] == 0.5
@@ -244,7 +248,9 @@ class TestGatewayClass:
         assert result["provider"] == "openai"
 
     @responses.activate
-    def test_chat_complete_overrides_defaults(self, mock_api_key, sample_messages, anthropic_response):
+    def test_chat_complete_overrides_defaults(
+        self, mock_api_key, sample_messages, anthropic_response
+    ):
         """Test chat_complete can override defaults."""
         responses.add(
             responses.POST,
@@ -325,6 +331,7 @@ class TestGatewayClass:
         )
 
         import json
+
         request_body = json.loads(responses.calls[0].request.body)
         assert request_body["temperature"] == 0.7
         assert request_body["max_tokens"] == 100
