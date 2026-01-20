@@ -13,13 +13,13 @@ Supported Providers:
 Quick Start:
 ------------
 
-    from python_sdk import chat_complete
+    from gateway import chat_complete
 
     # Works with any provider - same format!
     response = chat_complete(
         provider="anthropic",
         api_key="your-api-key",
-        model="claude-3-sonnet-20240229",
+        model="claude-sonnet-4-20250514",
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": "Hello!"}
@@ -32,7 +32,7 @@ Quick Start:
 Using the Gateway class:
 ------------------------
 
-    from python_sdk import Gateway
+    from gateway import Gateway
 
     gateway = Gateway(
         default_provider="openai",
@@ -45,8 +45,8 @@ Using the Gateway class:
     )
 """
 
-from .gateway import chat_complete, get_available_providers, Gateway
-from .providers import (
+from gateway import chat_complete, get_available_providers, Gateway
+from providers import (
     PROVIDERS,
     get_provider,
     list_providers,
