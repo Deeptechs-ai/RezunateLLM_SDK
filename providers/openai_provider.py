@@ -27,13 +27,13 @@ class OpenAIProvider(BaseProvider):
             "Content-Type": "application/json"
         }
 
-    def get_endpoint(self) -> str:
+    def get_endpoint(self, model: str = None) -> str:
         return "/chat/completions"
 
     def transform_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """No transformation needed - already in OpenAI format."""
         return request
 
-    def transform_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
+    def transform_response(self, response: Dict[str, Any], model: str = None) -> Dict[str, Any]:
         """No transformation needed - already in OpenAI format."""
         return response

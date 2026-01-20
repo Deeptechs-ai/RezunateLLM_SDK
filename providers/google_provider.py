@@ -15,9 +15,8 @@ class GoogleProvider(BaseProvider):
     Handles transformation between OpenAI and Google Gemini formats.
     """
 
-    def __init__(self, api_key: str, model: str = "gemini-pro", **kwargs):
+    def __init__(self, api_key: str, **kwargs):
         super().__init__(api_key, **kwargs)
-        self.model = model
 
     @property
     def base_url(self) -> str:
@@ -29,12 +28,12 @@ class GoogleProvider(BaseProvider):
 
     def get_headers(self) -> Dict[str, str]:
         return {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "x-goog-api-key": self.api_key
         }
 
-    def get_endpoint(self) -> str:
-        # Google includes model and API key in URL
-        return f"/models/{self.model}:generateContent?key={self.api_key}"
+    def get_endpoint(self, model: str = None) -> str:
+        return f"/models/{model}:generateContent"
 
     def transform_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -58,9 +57,6 @@ class GoogleProvider(BaseProvider):
             "generationConfig": {...}
         }
         """
-        # Update model from request
-        self.model = request.get("model", self.model)
-
         google_request = {
             "contents": [],
             "generationConfig": {}
@@ -118,7 +114,7 @@ class GoogleProvider(BaseProvider):
 
         return google_request
 
-    def transform_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
+    def transform_response(self, response: Dict[str, Any], model: str = None) -> Dict[str, Any]:
         """
         Transform Google Gemini format response to OpenAI format.
 
@@ -191,7 +187,7 @@ class GoogleProvider(BaseProvider):
             "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
             "object": "chat.completion",
             "created": int(time.time()),
-            "model": self.model,
+            "model": model,
             "choices": choices,
             "usage": {
                 "prompt_tokens": prompt_tokens,

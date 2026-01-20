@@ -29,7 +29,7 @@ python
 >>> response = chat_complete(
 ...     provider="anthropic",
 ...     api_key="sk-ant-your-key",
-...     model="claude-3-sonnet-20240229",
+...     model="claude-sonnet-4-20250514",
 ...     messages=[{"role": "user", "content": "Hello!"}],
 ...     max_tokens=100
 ... )
@@ -59,7 +59,7 @@ print(get_available_providers())  # ['openai', 'anthropic', 'google']
 response = chat_complete(
     provider="anthropic",
     api_key="your-api-key",
-    model="claude-3-sonnet-20240229",
+    model="claude-sonnet-4-20250514",
     messages=[
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "What is Python?"}
@@ -84,7 +84,7 @@ gw = Gateway(default_provider="anthropic", default_api_key="your-key")
 
 # Make requests without repeating provider/key
 response = gw.chat_complete(
-    model="claude-3-sonnet-20240229",
+    model="claude-sonnet-4-20250514",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 ```
@@ -94,7 +94,7 @@ response = gw.chat_complete(
 | Provider | Models | Status |
 |----------|--------|--------|
 | OpenAI | gpt-4, gpt-3.5-turbo, etc. | Supported |
-| Anthropic | claude-3-opus, claude-3-sonnet, etc. | Supported |
+| Anthropic | claude-opus-4, claude-sonnet-4, etc. | Supported |
 | Google | gemini-2.0-flash, gemini-2.5-pro, etc. | Supported |
 
 ## Response Format
@@ -106,7 +106,7 @@ All providers return responses in OpenAI format:
     "id": "chatcmpl-xxx",
     "object": "chat.completion",
     "created": 1234567890,
-    "model": "claude-3-sonnet-20240229",
+    "model": "claude-sonnet-4-20250514",
     "choices": [{
         "index": 0,
         "message": {

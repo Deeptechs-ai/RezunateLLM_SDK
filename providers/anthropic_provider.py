@@ -30,7 +30,7 @@ class AnthropicProvider(BaseProvider):
             "anthropic-version": "2023-06-01"
         }
 
-    def get_endpoint(self) -> str:
+    def get_endpoint(self, model: str = None) -> str:
         return "/messages"
 
     def transform_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
@@ -88,7 +88,7 @@ class AnthropicProvider(BaseProvider):
 
         return anthropic_request
 
-    def transform_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
+    def transform_response(self, response: Dict[str, Any], model: str = None) -> Dict[str, Any]:
         """
         Transform Anthropic format response to OpenAI format.
 

@@ -3,7 +3,7 @@ Provider Registry.
 Uses Factory Method Pattern for creating provider instances.
 """
 
-from typing import Dict, Type
+from typing import Dict, List, Type
 from providers.base import BaseProvider
 from providers.openai_provider import OpenAIProvider
 from providers.anthropic_provider import AnthropicProvider
@@ -47,7 +47,7 @@ def get_provider(provider_name: str, api_key: str, **kwargs) -> BaseProvider:
     return factory.create_provider(api_key=api_key, **kwargs)
 
 
-def list_providers() -> list:
+def list_providers() -> List[str]:
     """Return list of available provider names."""
     return list(FACTORY_REGISTRY.keys())
 
