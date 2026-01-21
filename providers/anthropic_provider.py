@@ -7,6 +7,11 @@ import time
 import uuid
 from typing import Any
 
+from providers.anthropic_models import (
+    AnthropicMessage,
+    AnthropicRequest,
+    AnthropicResponse,
+)
 from providers.base import BaseProvider
 
 
@@ -44,11 +49,6 @@ class AnthropicProvider(BaseProvider):
         - OpenAI: max_tokens optional
         - Anthropic: max_tokens required
         """
-        anthropic_request = {
-            "model": request.get("model"),
-            "max_tokens": request.get("max_tokens", 1024),  # Anthropic requires this
-        }
-
         # Extract system message and regular messages
         messages = request.get("messages", [])
         system_content = None
@@ -64,26 +64,20 @@ class AnthropicProvider(BaseProvider):
             else:
                 # Map OpenAI roles to Anthropic roles
                 anthropic_role = "assistant" if role == "assistant" else "user"
-                anthropic_messages.append({"role": anthropic_role, "content": content})
+                anthropic_messages.append(AnthropicMessage(role=anthropic_role, content=content))
 
-        anthropic_request["messages"] = anthropic_messages
+        # Build Anthropic request using pydantic model
+        anthropic_request = AnthropicRequest(
+            model=request.get("model"),
+            max_tokens=request.get("max_tokens", 1024),
+            messages=anthropic_messages,
+            system=system_content,
+            temperature=request.get("temperature"),
+            top_k=request.get("top_k"),
+            metadata=request.get("metadata"),
+        )
 
-        # Add system message if present
-        if system_content:
-            anthropic_request["system"] = system_content
-
-        # Map optional parameters
-        if "temperature" in request:
-            anthropic_request["temperature"] = request["temperature"]
-
-        # Pass through Anthropic-specific parameters
-        # These are params that Anthropic supports but OpenAI doesn't
-        anthropic_specific_params = ["top_k", "metadata"]
-        for param in anthropic_specific_params:
-            if param in request:
-                anthropic_request[param] = request[param]
-
-        return anthropic_request
+        return anthropic_request.model_dump(exclude_none=True)
 
     def transform_response(
         self, response: dict[str, Any], model: str | None = None
@@ -115,11 +109,14 @@ class AnthropicProvider(BaseProvider):
             "usage": {"prompt_tokens": X, "completion_tokens": Y, "total_tokens": Z}
         }
         """
+        # Parse Anthropic response using pydantic model
+        anthropic_response = AnthropicResponse.model_validate(response)
+
         # Extract content from Anthropic response
         content = ""
-        for block in response.get("content", []):
-            if block.get("type") == "text":
-                content += block.get("text", "")
+        for block in anthropic_response.content:
+            if block.type == "text":
+                content += block.text
 
         # Map Anthropic stop_reason to OpenAI finish_reason
         stop_reason_map = {
@@ -128,18 +125,17 @@ class AnthropicProvider(BaseProvider):
             "max_tokens": "length",
             "tool_use": "tool_calls",
         }
-        finish_reason = stop_reason_map.get(response.get("stop_reason", "end_turn"), "stop")
+        finish_reason = stop_reason_map.get(anthropic_response.stop_reason or "end_turn", "stop")
 
         # Build OpenAI format response
-        usage = response.get("usage", {})
-        input_tokens = usage.get("input_tokens", 0)
-        output_tokens = usage.get("output_tokens", 0)
+        input_tokens = anthropic_response.usage.input_tokens
+        output_tokens = anthropic_response.usage.output_tokens
 
         openai_response = {
-            "id": response.get("id", f"chatcmpl-{uuid.uuid4().hex[:8]}"),
+            "id": anthropic_response.id or f"chatcmpl-{uuid.uuid4().hex[:8]}",
             "object": "chat.completion",
             "created": int(time.time()),
-            "model": response.get("model", ""),
+            "model": anthropic_response.model,
             "choices": [
                 {
                     "index": 0,
