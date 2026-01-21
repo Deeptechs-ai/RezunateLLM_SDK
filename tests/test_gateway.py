@@ -28,7 +28,7 @@ class TestChatComplete:
             messages=sample_messages,
         )
 
-        assert result["provider"] == "openai"
+        assert result.provider == "openai"
         assert len(responses.calls) == 1
 
     @responses.activate
@@ -49,7 +49,7 @@ class TestChatComplete:
             max_tokens=100,
         )
 
-        assert result["provider"] == "anthropic"
+        assert result.provider == "anthropic"
         assert len(responses.calls) == 1
 
     @responses.activate
@@ -69,7 +69,7 @@ class TestChatComplete:
             messages=sample_messages,
         )
 
-        assert result["provider"] == "google"
+        assert result.provider == "google"
         assert len(responses.calls) == 1
 
     @responses.activate
@@ -173,15 +173,14 @@ class TestChatComplete:
             max_tokens=100,
         )
 
-        # Verify OpenAI format
-        assert "id" in result
-        assert "object" in result
-        assert result["object"] == "chat.completion"
-        assert "choices" in result
-        assert "usage" in result
-        assert "prompt_tokens" in result["usage"]
-        assert "completion_tokens" in result["usage"]
-        assert "total_tokens" in result["usage"]
+        # Verify OpenAI format (now using Pydantic model)
+        assert result.id is not None
+        assert result.object == "chat.completion"
+        assert result.choices is not None
+        assert result.usage is not None
+        assert result.usage.prompt_tokens is not None
+        assert result.usage.completion_tokens is not None
+        assert result.usage.total_tokens is not None
 
 
 class TestGetAvailableProviders:
@@ -245,7 +244,7 @@ class TestGatewayClass:
             model="gpt-4",
         )
 
-        assert result["provider"] == "openai"
+        assert result.provider == "openai"
 
     @responses.activate
     def test_chat_complete_overrides_defaults(
@@ -272,7 +271,7 @@ class TestGatewayClass:
             max_tokens=100,
         )
 
-        assert result["provider"] == "anthropic"
+        assert result.provider == "anthropic"
 
     def test_chat_complete_requires_provider(self, mock_api_key, sample_messages):
         """Test chat_complete raises error if no provider."""
@@ -377,6 +376,6 @@ class TestGatewayIntegration:
             max_tokens=100,
         )
 
-        assert result1["provider"] == "openai"
-        assert result2["provider"] == "anthropic"
+        assert result1.provider == "openai"
+        assert result2.provider == "anthropic"
         assert len(responses.calls) == 2

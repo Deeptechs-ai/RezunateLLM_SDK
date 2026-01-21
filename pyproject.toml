@@ -5,6 +5,7 @@ description = "Unified Python SDK for chat completions across multiple AI provid
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "pydantic>=2.0.0",
     "requests>=2.32.5",
 ]
 

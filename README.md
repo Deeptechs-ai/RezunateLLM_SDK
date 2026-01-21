@@ -10,7 +10,7 @@ git clone https://github.com/your-username/LLM-Router.git
 cd LLM-Router
 
 # Install dependencies
-pip install requests
+pip install requests pydantic
 ```
 
 ## Quick Start
@@ -23,70 +23,89 @@ python
 ```
 
 ```python
->>> from gateway import chat_complete
+>>> from gateway import chat_complete, ChatCompletionRequest, Message
 >>>
 >>> # Using Anthropic
+>>> request = ChatCompletionRequest(
+...     model="claude-sonnet-4-20250514",
+...     messages=[Message(role="user", content="Hello!")],
+...     max_tokens=100
+... )
 >>> response = chat_complete(
 ...     provider="anthropic",
 ...     api_key="sk-ant-your-key",
-...     model="claude-sonnet-4-20250514",
-...     messages=[{"role": "user", "content": "Hello!"}],
-...     max_tokens=100
+...     request=request
 ... )
->>> print(response["choices"][0]["message"]["content"])
+>>> print(response.choices[0].message.content)
 Hello! How can I help you today?
 
 >>> # Using Google Gemini
+>>> request = ChatCompletionRequest(
+...     model="gemini-2.0-flash",
+...     messages=[Message(role="user", content="Hi!")],
+...     max_tokens=100
+... )
 >>> response = chat_complete(
 ...     provider="google",
 ...     api_key="your-google-key",
-...     model="gemini-2.0-flash",
-...     messages=[{"role": "user", "content": "Hi!"}],
-...     max_tokens=100
+...     request=request
 ... )
->>> print(response["choices"][0]["message"]["content"])
+>>> print(response.choices[0].message.content)
 ```
 
 ### Using in a Python Script
 
 ```python
-from gateway import chat_complete, get_available_providers
+from gateway import (
+    chat_complete,
+    get_available_providers,
+    ChatCompletionRequest,
+    Message,
+)
 
 # List available providers
 print(get_available_providers())  # ['openai', 'anthropic', 'google']
 
-# Make a request
+# Build the request
+request = ChatCompletionRequest(
+    model="claude-sonnet-4-20250514",
+    messages=[
+        Message(role="system", content="You are a helpful assistant."),
+        Message(role="user", content="What is Python?"),
+    ],
+    temperature=0.7,
+    max_tokens=200,
+)
+
+# Make the request
 response = chat_complete(
     provider="anthropic",
     api_key="your-api-key",
-    model="claude-sonnet-4-20250514",
-    messages=[
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "What is Python?"}
-    ],
-    temperature=0.7,
-    max_tokens=200
+    request=request,
 )
 
 # Get the response
-print(response["choices"][0]["message"]["content"])
-print(f"Tokens used: {response['usage']['total_tokens']}")
-print(f"Provider: {response['provider']}")
+print(response.choices[0].message.content)
+print(f"Tokens used: {response.usage.total_tokens}")
+print(f"Provider: {response.provider}")
 ```
 
 ### Using the Gateway Class
 
 ```python
-from gateway import Gateway
+from gateway import Gateway, ChatCompletionRequest, Message
 
 # Create gateway with defaults
 gw = Gateway(default_provider="anthropic", default_api_key="your-key")
 
-# Make requests without repeating provider/key
-response = gw.chat_complete(
+# Build request
+request = ChatCompletionRequest(
     model="claude-sonnet-4-20250514",
-    messages=[{"role": "user", "content": "Hello!"}]
+    messages=[Message(role="user", content="Hello!")],
 )
+
+# Make requests without repeating provider/key
+response = gw.chat_complete(request)
 ```
 
 ## Supported Providers
@@ -99,29 +118,23 @@ response = gw.chat_complete(
 
 ## Response Format
 
-All providers return responses in OpenAI format:
+All providers return `ChatCompletionResponse` objects in OpenAI format:
 
 ```python
-{
-    "id": "chatcmpl-xxx",
-    "object": "chat.completion",
-    "created": 1234567890,
-    "model": "claude-sonnet-4-20250514",
-    "choices": [{
-        "index": 0,
-        "message": {
-            "role": "assistant",
-            "content": "Hello! How can I help you?"
-        },
-        "finish_reason": "stop"
-    }],
-    "usage": {
-        "prompt_tokens": 10,
-        "completion_tokens": 20,
-        "total_tokens": 30
-    },
-    "provider": "anthropic"
-}
+response.id              # "chatcmpl-xxx"
+response.object          # "chat.completion"
+response.created         # 1234567890
+response.model           # "claude-sonnet-4-20250514"
+response.provider        # "anthropic"
+
+response.choices[0].index           # 0
+response.choices[0].message.role    # "assistant"
+response.choices[0].message.content # "Hello! How can I help you?"
+response.choices[0].finish_reason   # "stop"
+
+response.usage.prompt_tokens        # 10
+response.usage.completion_tokens    # 20
+response.usage.total_tokens         # 30
 ```
 
 ## Project Structure
@@ -129,7 +142,7 @@ All providers return responses in OpenAI format:
 ```
 LLM-Router/
 ├── gateway.py              # Main entry point
-├── types.py                # Type definitions (optional)
+├── models.py               # Pydantic models (ChatCompletionRequest, Message, etc.)
 ├── providers/
 │   ├── __init__.py         # Package interface
 │   ├── base.py             # Abstract base class
