@@ -5,7 +5,7 @@ Tests for Gateway (main router).
 import pytest
 import responses
 
-from gateway import Gateway, chat_complete, get_available_providers
+from gateway import ChatCompletionRequest, Gateway, chat_complete, get_available_providers
 
 
 class TestChatComplete:
@@ -21,11 +21,11 @@ class TestChatComplete:
             status=200,
         )
 
+        request = ChatCompletionRequest(model="gpt-4", messages=sample_messages)
         result = chat_complete(
             provider="openai",
             api_key=mock_api_key,
-            model="gpt-4",
-            messages=sample_messages,
+            request=request,
         )
 
         assert result.provider == "openai"
@@ -41,12 +41,15 @@ class TestChatComplete:
             status=200,
         )
 
-        result = chat_complete(
-            provider="anthropic",
-            api_key=mock_api_key,
+        request = ChatCompletionRequest(
             model="claude-sonnet-4-20250514",
             messages=sample_messages,
             max_tokens=100,
+        )
+        result = chat_complete(
+            provider="anthropic",
+            api_key=mock_api_key,
+            request=request,
         )
 
         assert result.provider == "anthropic"
@@ -62,11 +65,11 @@ class TestChatComplete:
             status=200,
         )
 
+        request = ChatCompletionRequest(model="gemini-2.0-flash", messages=sample_messages)
         result = chat_complete(
             provider="google",
             api_key=mock_api_key,
-            model="gemini-2.0-flash",
-            messages=sample_messages,
+            request=request,
         )
 
         assert result.provider == "google"
@@ -82,12 +85,15 @@ class TestChatComplete:
             status=200,
         )
 
-        chat_complete(
-            provider="openai",
-            api_key=mock_api_key,
+        request = ChatCompletionRequest(
             model="gpt-4",
             messages=sample_messages,
             temperature=0.5,
+        )
+        chat_complete(
+            provider="openai",
+            api_key=mock_api_key,
+            request=request,
         )
 
         import json
@@ -105,12 +111,15 @@ class TestChatComplete:
             status=200,
         )
 
-        chat_complete(
-            provider="openai",
-            api_key=mock_api_key,
+        request = ChatCompletionRequest(
             model="gpt-4",
             messages=sample_messages,
             max_tokens=100,
+        )
+        chat_complete(
+            provider="openai",
+            api_key=mock_api_key,
+            request=request,
         )
 
         import json
@@ -119,8 +128,8 @@ class TestChatComplete:
         assert request_body["max_tokens"] == 100
 
     @responses.activate
-    def test_passes_kwargs(self, mock_api_key, sample_messages, openai_response):
-        """Test additional kwargs are passed to provider."""
+    def test_passes_additional_params(self, mock_api_key, sample_messages, openai_response):
+        """Test additional params are passed to provider."""
         responses.add(
             responses.POST,
             "https://api.openai.com/v1/chat/completions",
@@ -128,13 +137,16 @@ class TestChatComplete:
             status=200,
         )
 
-        chat_complete(
-            provider="openai",
-            api_key=mock_api_key,
+        request = ChatCompletionRequest(
             model="gpt-4",
             messages=sample_messages,
             top_p=0.9,
             frequency_penalty=0.5,
+        )
+        chat_complete(
+            provider="openai",
+            api_key=mock_api_key,
+            request=request,
         )
 
         import json
@@ -145,12 +157,12 @@ class TestChatComplete:
 
     def test_unknown_provider_raises_error(self, mock_api_key, sample_messages):
         """Test unknown provider raises ValueError."""
+        request = ChatCompletionRequest(model="some-model", messages=sample_messages)
         with pytest.raises(ValueError) as exc_info:
             chat_complete(
                 provider="unknown",
                 api_key=mock_api_key,
-                model="some-model",
-                messages=sample_messages,
+                request=request,
             )
 
         assert "Unknown provider" in str(exc_info.value)
@@ -165,12 +177,15 @@ class TestChatComplete:
             status=200,
         )
 
-        result = chat_complete(
-            provider="anthropic",
-            api_key=mock_api_key,
+        request = ChatCompletionRequest(
             model="claude-sonnet-4-20250514",
             messages=sample_messages,
             max_tokens=100,
+        )
+        result = chat_complete(
+            provider="anthropic",
+            api_key=mock_api_key,
+            request=request,
         )
 
         # Verify OpenAI format (now using Pydantic model)
@@ -239,10 +254,8 @@ class TestGatewayClass:
             default_api_key=mock_api_key,
         )
 
-        result = gateway.chat_complete(
-            messages=sample_messages,
-            model="gpt-4",
-        )
+        request = ChatCompletionRequest(model="gpt-4", messages=sample_messages)
+        result = gateway.chat_complete(request)
 
         assert result.provider == "openai"
 
@@ -263,12 +276,15 @@ class TestGatewayClass:
             default_api_key="default-key",
         )
 
-        result = gateway.chat_complete(
-            messages=sample_messages,
+        request = ChatCompletionRequest(
             model="claude-sonnet-4-20250514",
+            messages=sample_messages,
+            max_tokens=100,
+        )
+        result = gateway.chat_complete(
+            request,
             provider="anthropic",
             api_key=mock_api_key,
-            max_tokens=100,
         )
 
         assert result.provider == "anthropic"
@@ -277,11 +293,9 @@ class TestGatewayClass:
         """Test chat_complete raises error if no provider."""
         gateway = Gateway(default_api_key=mock_api_key)
 
+        request = ChatCompletionRequest(model="gpt-4", messages=sample_messages)
         with pytest.raises(ValueError) as exc_info:
-            gateway.chat_complete(
-                messages=sample_messages,
-                model="gpt-4",
-            )
+            gateway.chat_complete(request)
 
         assert "Provider must be specified" in str(exc_info.value)
 
@@ -289,11 +303,9 @@ class TestGatewayClass:
         """Test chat_complete raises error if no api_key."""
         gateway = Gateway(default_provider="openai")
 
+        request = ChatCompletionRequest(model="gpt-4", messages=sample_messages)
         with pytest.raises(ValueError) as exc_info:
-            gateway.chat_complete(
-                messages=sample_messages,
-                model="gpt-4",
-            )
+            gateway.chat_complete(request)
 
         assert "API key must be specified" in str(exc_info.value)
 
@@ -308,8 +320,8 @@ class TestGatewayClass:
         assert "google" in providers
 
     @responses.activate
-    def test_passes_kwargs_through(self, mock_api_key, sample_messages, openai_response):
-        """Test Gateway passes kwargs to chat_complete."""
+    def test_passes_request_params_through(self, mock_api_key, sample_messages, openai_response):
+        """Test Gateway passes request params to chat_complete."""
         responses.add(
             responses.POST,
             "https://api.openai.com/v1/chat/completions",
@@ -322,12 +334,13 @@ class TestGatewayClass:
             default_api_key=mock_api_key,
         )
 
-        gateway.chat_complete(
-            messages=sample_messages,
+        request = ChatCompletionRequest(
             model="gpt-4",
+            messages=sample_messages,
             temperature=0.7,
             max_tokens=100,
         )
+        gateway.chat_complete(request)
 
         import json
 
@@ -360,20 +373,23 @@ class TestGatewayIntegration:
         gateway = Gateway()
 
         # Call OpenAI
+        request1 = ChatCompletionRequest(model="gpt-4", messages=sample_messages)
         result1 = gateway.chat_complete(
+            request1,
             provider="openai",
             api_key=mock_api_key,
-            model="gpt-4",
-            messages=sample_messages,
         )
 
         # Call Anthropic
-        result2 = gateway.chat_complete(
-            provider="anthropic",
-            api_key=mock_api_key,
+        request2 = ChatCompletionRequest(
             model="claude-sonnet-4-20250514",
             messages=sample_messages,
             max_tokens=100,
+        )
+        result2 = gateway.chat_complete(
+            request2,
+            provider="anthropic",
+            api_key=mock_api_key,
         )
 
         assert result1.provider == "openai"

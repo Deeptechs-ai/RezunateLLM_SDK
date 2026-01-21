@@ -8,23 +8,20 @@ Routes requests to the appropriate provider.
 from models import ChatCompletionRequest, ChatCompletionResponse, Message
 from providers import get_provider, list_providers
 
-__all__ = ["chat_complete", "get_available_providers", "Gateway"]
+__all__ = [
+    "chat_complete",
+    "get_available_providers",
+    "Gateway",
+    "ChatCompletionRequest",
+    "ChatCompletionResponse",
+    "Message",
+]
 
 
 def chat_complete(
     provider: str,
     api_key: str,
-    model: str,
-    messages: list[Message],
-    temperature: float | None = None,
-    max_tokens: int | None = None,
-    top_p: float | None = None,
-    frequency_penalty: float | None = None,
-    presence_penalty: float | None = None,
-    stop: str | list[str] | None = None,
-    n: int | None = None,
-    stream: bool | None = None,
-    user: str | None = None,
+    request: ChatCompletionRequest,
 ) -> ChatCompletionResponse:
     """
     Execute chat completion with any provider.
@@ -34,51 +31,27 @@ def chat_complete(
     Args:
         provider: Provider name ("openai", "anthropic", "google").
         api_key: API key for the provider.
-        model: Model name (e.g., "gpt-4", "claude-sonnet-4-20250514", "gemini-2.0-flash").
-        messages: List of Message objects.
-        temperature: Sampling temperature (0-2).
-        max_tokens: Maximum tokens to generate.
-        top_p: Nucleus sampling parameter.
-        frequency_penalty: Frequency penalty (-2.0 to 2.0).
-        presence_penalty: Presence penalty (-2.0 to 2.0).
-        stop: Stop sequences.
-        n: Number of completions to generate.
-        stream: Whether to stream the response.
-        user: User identifier.
+        request: ChatCompletionRequest containing model, messages, and optional parameters.
 
     Returns:
         ChatCompletionResponse with id, object, created, model, choices, usage, and provider.
 
     Example:
-        >>> response = chat_complete(
-        ...     provider="anthropic",
-        ...     api_key="sk-ant-...",
+        >>> request = ChatCompletionRequest(
         ...     model="claude-sonnet-4-20250514",
         ...     messages=[Message(role="user", content="Hello!")],
         ...     max_tokens=100,
         ... )
+        >>> response = chat_complete(
+        ...     provider="anthropic",
+        ...     api_key="sk-ant-...",
+        ...     request=request,
+        ... )
         >>> print(response.choices[0].message.content)
     """
-    # Build request using Pydantic model
-    request = ChatCompletionRequest(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        top_p=top_p,
-        frequency_penalty=frequency_penalty,
-        presence_penalty=presence_penalty,
-        stop=stop,
-        n=n,
-        stream=stream,
-        user=user,
-    )
-
-    # Convert to dict for provider (excluding None values)
     request_dict = request.model_dump(exclude_none=True)
 
-    # Get provider instance and execute
-    provider_instance = get_provider(provider, api_key, model=model)
+    provider_instance = get_provider(provider, api_key, model=request.model)
     response_dict = provider_instance.chat_complete(request_dict)
 
     return ChatCompletionResponse.model_validate(response_dict)
@@ -102,10 +75,11 @@ class Gateway:
 
     Example:
         >>> gateway = Gateway(default_provider="openai", default_api_key="sk-...")
-        >>> response = gateway.chat_complete(
+        >>> request = ChatCompletionRequest(
         ...     model="gpt-4",
         ...     messages=[Message(role="user", content="Hello")],
         ... )
+        >>> response = gateway.chat_complete(request)
     """
 
     def __init__(
@@ -125,19 +99,9 @@ class Gateway:
 
     def chat_complete(
         self,
-        messages: list[Message],
-        model: str,
+        request: ChatCompletionRequest,
         provider: str | None = None,
         api_key: str | None = None,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        top_p: float | None = None,
-        frequency_penalty: float | None = None,
-        presence_penalty: float | None = None,
-        stop: str | list[str] | None = None,
-        n: int | None = None,
-        stream: bool | None = None,
-        user: str | None = None,
     ) -> ChatCompletionResponse:
         """
         Execute chat completion.
@@ -145,19 +109,9 @@ class Gateway:
         Uses default provider and api_key if not specified.
 
         Args:
-            messages: List of Message objects.
-            model: Model name to use.
+            request: ChatCompletionRequest containing model, messages, and optional parameters.
             provider: Provider name (uses default if not specified).
             api_key: API key (uses default if not specified).
-            temperature: Sampling temperature (0-2).
-            max_tokens: Maximum tokens to generate.
-            top_p: Nucleus sampling parameter.
-            frequency_penalty: Frequency penalty (-2.0 to 2.0).
-            presence_penalty: Presence penalty (-2.0 to 2.0).
-            stop: Stop sequences.
-            n: Number of completions to generate.
-            stream: Whether to stream the response.
-            user: User identifier.
 
         Returns:
             ChatCompletionResponse in OpenAI format.
@@ -165,28 +119,18 @@ class Gateway:
         Raises:
             ValueError: If provider or api_key is not specified and no default is set.
         """
-        provider = provider or self.default_provider
-        api_key = api_key or self.default_api_key
+        resolved_provider = provider if provider is not None else self.default_provider
+        resolved_api_key = api_key if api_key is not None else self.default_api_key
 
-        if not provider:
+        if not resolved_provider:
             raise ValueError("Provider must be specified")
-        if not api_key:
+        if not resolved_api_key:
             raise ValueError("API key must be specified")
 
         return chat_complete(
-            provider=provider,
-            api_key=api_key,
-            model=model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            top_p=top_p,
-            frequency_penalty=frequency_penalty,
-            presence_penalty=presence_penalty,
-            stop=stop,
-            n=n,
-            stream=stream,
-            user=user,
+            provider=resolved_provider,
+            api_key=resolved_api_key,
+            request=request,
         )
 
     @property
