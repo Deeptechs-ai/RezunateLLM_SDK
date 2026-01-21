@@ -7,6 +7,9 @@ import time
 import uuid
 from typing import Any
 
+from pydantic import ValidationError
+
+from models import ChatCompletionResponse, Choice, ResponseMessage, Usage
 from providers.base import BaseProvider
 from providers.google_models import (
     GoogleContentBlock,
@@ -112,8 +115,11 @@ class GoogleProvider(BaseProvider):
         Returns:
             OpenAI-formatted response with id, object, created, model, choices, and usage.
         """
-        # Parse Google response using pydantic model
-        google_response = GoogleResponse.model_validate(response)
+        # Parse Google response using pydantic model with error handling
+        try:
+            google_response = GoogleResponse.model_validate(response)
+        except ValidationError as e:
+            raise ValueError(f"Invalid Google response: {e}") from e
 
         # Map Google finish reason to OpenAI
         finish_reason_map = {
@@ -124,7 +130,7 @@ class GoogleProvider(BaseProvider):
             "OTHER": "stop",
         }
 
-        # Extract content from candidates
+        # Extract content from candidates using Pydantic models
         choices = []
         for idx, candidate in enumerate(google_response.candidates):
             content = ""
@@ -135,30 +141,30 @@ class GoogleProvider(BaseProvider):
             finish_reason = finish_reason_map.get(candidate.finishReason or "STOP", "stop")
 
             choices.append(
-                {
-                    "index": idx,
-                    "message": {"role": "assistant", "content": content},
-                    "finish_reason": finish_reason,
-                }
+                Choice(
+                    index=idx,
+                    message=ResponseMessage(content=content),
+                    finish_reason=finish_reason,
+                )
             )
 
         # Extract usage metadata
-        usage = google_response.usageMetadata
-        prompt_tokens = usage.promptTokenCount
-        completion_tokens = usage.candidatesTokenCount
-        total_tokens = usage.totalTokenCount or (prompt_tokens + completion_tokens)
+        usage_meta = google_response.usageMetadata
+        prompt_tokens = usage_meta.promptTokenCount
+        completion_tokens = usage_meta.candidatesTokenCount
+        total_tokens = usage_meta.totalTokenCount or (prompt_tokens + completion_tokens)
 
-        openai_response = {
-            "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": model,
-            "choices": choices,
-            "usage": {
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "total_tokens": total_tokens,
-            },
-        }
+        openai_response = ChatCompletionResponse(
+            id=f"chatcmpl-{uuid.uuid4().hex[:8]}",
+            created=int(time.time()),
+            model=model,
+            choices=choices,
+            usage=Usage(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+            ),
+            provider=self.provider_name,
+        )
 
-        return openai_response
+        return openai_response.model_dump(exclude_none=True)

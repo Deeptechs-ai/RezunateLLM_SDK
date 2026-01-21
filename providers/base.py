@@ -10,6 +10,8 @@ from typing import Any
 
 import requests
 
+from models import ChatCompletionResponse, ErrorInfo, Usage
+
 # Retry configuration
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY = 1.0  # seconds
@@ -138,21 +140,26 @@ class BaseProvider(ABC):
                 # No more retries - return error
                 break
 
-        # Return error in consistent OpenAI format
-        return {
-            "id": None,
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": model,
-            "choices": [],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            "provider": self.provider_name,
-            "error": {
-                "message": str(last_error),
-                "type": "api_error",
-                "code": getattr(last_error.response, "status_code", None)
-                if hasattr(last_error, "response")
-                else None,
-                "retries_attempted": attempt,
-            },
-        }
+        # Return error in consistent OpenAI format using Pydantic models
+        error_code = (
+            getattr(last_error.response, "status_code", None)
+            if hasattr(last_error, "response")
+            else None
+        )
+
+        error_response = ChatCompletionResponse(
+            id=None,
+            created=int(time.time()),
+            model=model,
+            choices=[],
+            usage=Usage(),
+            provider=self.provider_name,
+            error=ErrorInfo(
+                message=str(last_error),
+                type="api_error",
+                code=error_code,
+                retries_attempted=attempt,
+            ),
+        )
+
+        return error_response.model_dump()

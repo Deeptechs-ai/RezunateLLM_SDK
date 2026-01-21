@@ -189,7 +189,7 @@ class TestGoogleTransformResponse:
             },
         }
 
-        result = provider.transform_response(response)
+        result = provider.transform_response(response, model="gemini-2.0-flash")
 
         assert result["choices"][0]["finish_reason"] == "stop"
 
@@ -210,7 +210,7 @@ class TestGoogleTransformResponse:
             },
         }
 
-        result = provider.transform_response(response)
+        result = provider.transform_response(response, model="gemini-2.0-flash")
 
         assert result["choices"][0]["finish_reason"] == "length"
 
@@ -231,7 +231,7 @@ class TestGoogleTransformResponse:
             },
         }
 
-        result = provider.transform_response(response)
+        result = provider.transform_response(response, model="gemini-2.0-flash")
 
         assert result["choices"][0]["finish_reason"] == "content_filter"
 
@@ -239,7 +239,7 @@ class TestGoogleTransformResponse:
         """Test usage is transformed correctly."""
         provider = GoogleProvider(api_key=mock_api_key)
 
-        result = provider.transform_response(google_response)
+        result = provider.transform_response(google_response, model="gemini-2.0-flash")
 
         assert result["usage"]["prompt_tokens"] == 10
         assert result["usage"]["completion_tokens"] == 20
@@ -266,7 +266,7 @@ class TestGoogleTransformResponse:
             },
         }
 
-        result = provider.transform_response(response)
+        result = provider.transform_response(response, model="gemini-2.0-flash")
 
         assert len(result["choices"]) == 2
         assert result["choices"][0]["index"] == 0
@@ -294,7 +294,7 @@ class TestGoogleTransformResponse:
             },
         }
 
-        result = provider.transform_response(response)
+        result = provider.transform_response(response, model="gemini-2.0-flash")
 
         assert result["choices"][0]["message"]["content"] == "First Second"
 
@@ -302,7 +302,7 @@ class TestGoogleTransformResponse:
         """Test response includes created timestamp."""
         provider = GoogleProvider(api_key=mock_api_key)
 
-        result = provider.transform_response(google_response)
+        result = provider.transform_response(google_response, model="gemini-2.0-flash")
 
         assert "created" in result
         assert isinstance(result["created"], int)
@@ -311,7 +311,7 @@ class TestGoogleTransformResponse:
         """Test response has a unique ID."""
         provider = GoogleProvider(api_key=mock_api_key)
 
-        result = provider.transform_response(google_response)
+        result = provider.transform_response(google_response, model="gemini-2.0-flash")
 
         assert "id" in result
         assert result["id"].startswith("chatcmpl-")

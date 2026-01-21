@@ -7,6 +7,9 @@ import time
 import uuid
 from typing import Any
 
+from pydantic import ValidationError
+
+from models import ChatCompletionResponse, Choice, ResponseMessage, Usage
 from providers.anthropic_models import (
     AnthropicMessage,
     AnthropicRequest,
@@ -109,8 +112,11 @@ class AnthropicProvider(BaseProvider):
             "usage": {"prompt_tokens": X, "completion_tokens": Y, "total_tokens": Z}
         }
         """
-        # Parse Anthropic response using pydantic model
-        anthropic_response = AnthropicResponse.model_validate(response)
+        # Parse Anthropic response using pydantic model with error handling
+        try:
+            anthropic_response = AnthropicResponse.model_validate(response)
+        except ValidationError as e:
+            raise ValueError(f"Invalid Anthropic response: {e}") from e
 
         # Extract content from Anthropic response
         content = ""
@@ -127,27 +133,27 @@ class AnthropicProvider(BaseProvider):
         }
         finish_reason = stop_reason_map.get(anthropic_response.stop_reason or "end_turn", "stop")
 
-        # Build OpenAI format response
+        # Build OpenAI format response using Pydantic models
         input_tokens = anthropic_response.usage.input_tokens
         output_tokens = anthropic_response.usage.output_tokens
 
-        openai_response = {
-            "id": anthropic_response.id or f"chatcmpl-{uuid.uuid4().hex[:8]}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": anthropic_response.model,
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": content},
-                    "finish_reason": finish_reason,
-                }
+        openai_response = ChatCompletionResponse(
+            id=anthropic_response.id or f"chatcmpl-{uuid.uuid4().hex[:8]}",
+            created=int(time.time()),
+            model=anthropic_response.model,
+            choices=[
+                Choice(
+                    index=0,
+                    message=ResponseMessage(content=content),
+                    finish_reason=finish_reason,
+                )
             ],
-            "usage": {
-                "prompt_tokens": input_tokens,
-                "completion_tokens": output_tokens,
-                "total_tokens": input_tokens + output_tokens,
-            },
-        }
+            usage=Usage(
+                prompt_tokens=input_tokens,
+                completion_tokens=output_tokens,
+                total_tokens=input_tokens + output_tokens,
+            ),
+            provider=self.provider_name,
+        )
 
-        return openai_response
+        return openai_response.model_dump(exclude_none=True)
