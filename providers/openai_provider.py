@@ -5,6 +5,7 @@ No transformation needed - OpenAI format is the standard.
 
 from typing import Any
 
+from models import ChatCompletionRequest
 from providers.base import BaseProvider
 
 
@@ -29,8 +30,9 @@ class OpenAIProvider(BaseProvider):
         return "/chat/completions"
 
     def transform_request(self, request: dict[str, Any]) -> dict[str, Any]:
-        """No transformation needed - already in OpenAI format."""
-        return request
+        """Validate and pass through - already in OpenAI format."""
+        openai_request = ChatCompletionRequest.model_validate(request)
+        return openai_request.model_dump(exclude_none=True)
 
     def transform_response(self, response: dict[str, Any], model: str = None) -> dict[str, Any]:
         """No transformation needed - already in OpenAI format."""

@@ -8,6 +8,14 @@ import uuid
 from typing import Any
 
 from providers.base import BaseProvider
+from providers.google_models import (
+    GoogleContentBlock,
+    GoogleGenerationConfig,
+    GoogleMessage,
+    GoogleRequest,
+    GoogleResponse,
+    GoogleSystemInstruction,
+)
 
 
 class GoogleProvider(BaseProvider):
@@ -47,11 +55,10 @@ class GoogleProvider(BaseProvider):
             Google Gemini-formatted request with contents, systemInstruction (if present),
             and generationConfig.
         """
-        google_request = {"contents": []}
-
         # Extract system message and regular messages
         messages = request.get("messages", [])
         system_content = None
+        google_messages = []
 
         for msg in messages:
             role = msg.get("role")
@@ -61,40 +68,36 @@ class GoogleProvider(BaseProvider):
                 system_content = content
             else:
                 google_role = "model" if role == "assistant" else "user"
-                google_request["contents"].append(
-                    {"role": google_role, "parts": [{"text": content}]}
+                google_messages.append(
+                    GoogleMessage(role=google_role, parts=[GoogleContentBlock(text=content)])
                 )
 
-        # Add system instruction if present
+        # Build system instruction if present
+        system_instruction = None
         if system_content:
-            google_request["systemInstruction"] = {"parts": [{"text": system_content}]}
+            system_instruction = GoogleSystemInstruction(
+                parts=[GoogleContentBlock(text=system_content)]
+            )
 
-        # Map generation config
-        generation_config = {}
+        # Build generation config if any params present
+        generation_config = None
+        if any(k in request for k in ["temperature", "max_tokens", "top_k"]):
+            generation_config = GoogleGenerationConfig(
+                temperature=request.get("temperature"),
+                maxOutputTokens=request.get("max_tokens"),
+                topK=request.get("top_k"),
+            )
 
-        if "temperature" in request:
-            generation_config["temperature"] = request["temperature"]
+        # Build Google request using pydantic model
+        google_request = GoogleRequest(
+            contents=google_messages,
+            systemInstruction=system_instruction,
+            generationConfig=generation_config,
+            safetySettings=request.get("safety_settings"),
+            tools=request.get("tools"),
+        )
 
-        if "max_tokens" in request:
-            generation_config["maxOutputTokens"] = request["max_tokens"]
-
-        # Pass through Google-specific generation config params
-        # top_k is supported by Google but not OpenAI
-        if "top_k" in request:
-            generation_config["topK"] = request["top_k"]
-
-        if generation_config:
-            google_request["generationConfig"] = generation_config
-
-        # Pass through Google-specific top-level params
-        # These go directly in the request, not in generationConfig
-        if "safety_settings" in request:
-            google_request["safetySettings"] = request["safety_settings"]
-
-        if "tools" in request:
-            google_request["tools"] = request["tools"]
-
-        return google_request
+        return google_request.model_dump(exclude_none=True)
 
     def transform_response(self, response: dict[str, Any], model: str = None) -> dict[str, Any]:
         """Transform Google Gemini format response to OpenAI format.
@@ -109,26 +112,27 @@ class GoogleProvider(BaseProvider):
         Returns:
             OpenAI-formatted response with id, object, created, model, choices, and usage.
         """
+        # Parse Google response using pydantic model
+        google_response = GoogleResponse.model_validate(response)
+
+        # Map Google finish reason to OpenAI
+        finish_reason_map = {
+            "STOP": "stop",
+            "MAX_TOKENS": "length",
+            "SAFETY": "content_filter",
+            "RECITATION": "content_filter",
+            "OTHER": "stop",
+        }
+
         # Extract content from candidates
         choices = []
-        candidates = response.get("candidates", [])
-
-        for idx, candidate in enumerate(candidates):
+        for idx, candidate in enumerate(google_response.candidates):
             content = ""
-            parts = candidate.get("content", {}).get("parts", [])
-            for part in parts:
-                if "text" in part:
-                    content += part["text"]
+            if candidate.content:
+                for part in candidate.content.parts:
+                    content += part.text
 
-            # Map Google finish reason to OpenAI
-            finish_reason_map = {
-                "STOP": "stop",
-                "MAX_TOKENS": "length",
-                "SAFETY": "content_filter",
-                "RECITATION": "content_filter",
-                "OTHER": "stop",
-            }
-            finish_reason = finish_reason_map.get(candidate.get("finishReason", "STOP"), "stop")
+            finish_reason = finish_reason_map.get(candidate.finishReason or "STOP", "stop")
 
             choices.append(
                 {
@@ -139,10 +143,10 @@ class GoogleProvider(BaseProvider):
             )
 
         # Extract usage metadata
-        usage_metadata = response.get("usageMetadata", {})
-        prompt_tokens = usage_metadata.get("promptTokenCount", 0)
-        completion_tokens = usage_metadata.get("candidatesTokenCount", 0)
-        total_tokens = usage_metadata.get("totalTokenCount", prompt_tokens + completion_tokens)
+        usage = google_response.usageMetadata
+        prompt_tokens = usage.promptTokenCount
+        completion_tokens = usage.candidatesTokenCount
+        total_tokens = usage.totalTokenCount or (prompt_tokens + completion_tokens)
 
         openai_response = {
             "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
