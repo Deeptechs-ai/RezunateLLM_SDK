@@ -32,11 +32,3 @@ response = chat_complete(
 
 print(response.choices[0].message.content)
 ```
-
-## Supported Providers
-
-| Provider | Example Models |
-|----------|----------------|
-| OpenAI | gpt-4, gpt-3.5-turbo |
-| Anthropic | claude-opus-4, claude-sonnet-4 |
-| Google | gemini-2.0-flash, gemini-2.5-pro |
