@@ -5,6 +5,7 @@ A unified Python library for chat completions across multiple AI providers
 """
 
 from gateway import Gateway, chat_complete, get_available_providers
+from models import ChatCompletionRequest, ChatCompletionResponse, Message
 from providers import (
     PROVIDERS,
     AnthropicProvider,
@@ -15,20 +16,20 @@ from providers import (
     list_providers,
 )
 
-__version__ = "0.1.0"
-
 __all__ = [
-    # Main API
     "Gateway",
     "chat_complete",
     "get_available_providers",
-    # Provider utilities
+    "ChatCompletionRequest",
+    "ChatCompletionResponse",
+    "Message",
     "PROVIDERS",
-    "get_provider",
-    "list_providers",
-    # Provider classes
     "AnthropicProvider",
     "BaseProvider",
     "GoogleProvider",
     "OpenAIProvider",
+    "get_provider",
+    "list_providers",
 ]
+
+__version__ = "0.1.0"
