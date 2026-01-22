@@ -1,161 +1,42 @@
 # LLM-Router
 
-A unified Python SDK for chat completions across multiple LLM providers. Write once, use with OpenAI, Anthropic, Google Gemini, and more. All requests and responses follow the OpenAI format as the standard, making it easy to switch between providers without changing your code.
+Unified Python SDK for chat completions across OpenAI, Anthropic, and Google Gemini. All requests/responses use OpenAI format.
+
+## Clone the Project 
+```bash
+git clone https://github.com/Deeptechs-ai/LLM-Router
+```
 
 ## Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-username/LLM-Router.git
-cd LLM-Router
-
-# Install dependencies
-pip install requests pydantic
+uv sync
 ```
 
-## Quick Start
-
-### Using in Python REPL (Interactive Mode)
-
-```bash
-cd LLM-Router
-python
-```
+## Usage
 
 ```python
->>> from gateway import chat_complete, ChatCompletionRequest, Message
->>>
->>> # Using Anthropic
->>> request = ChatCompletionRequest(
-...     model="claude-sonnet-4-20250514",
-...     messages=[Message(role="user", content="Hello!")],
-...     max_tokens=100
-... )
->>> response = chat_complete(
-...     provider="anthropic",
-...     api_key="sk-ant-your-key",
-...     request=request
-... )
->>> print(response.choices[0].message.content)
-Hello! How can I help you today?
+from gateway import chat_complete, ChatCompletionRequest, Message
 
->>> # Using Google Gemini
->>> request = ChatCompletionRequest(
-...     model="gemini-2.0-flash",
-...     messages=[Message(role="user", content="Hi!")],
-...     max_tokens=100
-... )
->>> response = chat_complete(
-...     provider="google",
-...     api_key="your-google-key",
-...     request=request
-... )
->>> print(response.choices[0].message.content)
-```
-
-### Using in a Python Script
-
-```python
-from gateway import (
-    chat_complete,
-    get_available_providers,
-    ChatCompletionRequest,
-    Message,
-)
-
-# List available providers
-print(get_available_providers())  # ['openai', 'anthropic', 'google']
-
-# Build the request
 request = ChatCompletionRequest(
     model="claude-sonnet-4-20250514",
-    messages=[
-        Message(role="system", content="You are a helpful assistant."),
-        Message(role="user", content="What is Python?"),
-    ],
-    temperature=0.7,
-    max_tokens=200,
+    messages=[Message(role="user", content="Hello!")],
+    max_tokens=100,
 )
 
-# Make the request
 response = chat_complete(
-    provider="anthropic",
+    provider="anthropic",  # or "openai", "google"
     api_key="your-api-key",
     request=request,
 )
 
-# Get the response
 print(response.choices[0].message.content)
-print(f"Tokens used: {response.usage.total_tokens}")
-print(f"Provider: {response.provider}")
-```
-
-### Using the Gateway Class
-
-```python
-from gateway import Gateway, ChatCompletionRequest, Message
-
-# Create gateway with defaults
-gw = Gateway(default_provider="anthropic", default_api_key="your-key")
-
-# Build request
-request = ChatCompletionRequest(
-    model="claude-sonnet-4-20250514",
-    messages=[Message(role="user", content="Hello!")],
-)
-
-# Make requests without repeating provider/key
-response = gw.chat_complete(request)
 ```
 
 ## Supported Providers
 
-| Provider | Models | Status |
-|----------|--------|--------|
-| OpenAI | gpt-4, gpt-3.5-turbo, etc. | Supported |
-| Anthropic | claude-opus-4, claude-sonnet-4, etc. | Supported |
-| Google | gemini-2.0-flash, gemini-2.5-pro, etc. | Supported |
-
-## Response Format
-
-All providers return `ChatCompletionResponse` objects in OpenAI format:
-
-```python
-response.id              # "chatcmpl-xxx"
-response.object          # "chat.completion"
-response.created         # 1234567890
-response.model           # "claude-sonnet-4-20250514"
-response.provider        # "anthropic"
-
-response.choices[0].index           # 0
-response.choices[0].message.role    # "assistant"
-response.choices[0].message.content # "Hello! How can I help you?"
-response.choices[0].finish_reason   # "stop"
-
-response.usage.prompt_tokens        # 10
-response.usage.completion_tokens    # 20
-response.usage.total_tokens         # 30
-```
-
-## Project Structure
-
-```
-LLM-Router/
-├── gateway.py              # Main entry point
-├── models.py               # Pydantic models (ChatCompletionRequest, Message, etc.)
-├── providers/
-│   ├── __init__.py         # Package interface
-│   ├── base.py             # Abstract base class
-│   ├── factory.py          # Factory pattern implementation
-│   ├── openai_provider.py  # OpenAI provider
-│   ├── anthropic_provider.py # Anthropic provider
-│   └── google_provider.py  # Google Gemini provider
-```
-
-## Adding a New Provider
-
-1. Create `providers/your_provider.py` implementing `BaseProvider`
-2. Add factory class in `providers/factory.py`
-3. Register in `FACTORY_REGISTRY`
-
-See existing providers for examples.
+| Provider | Example Models |
+|----------|----------------|
+| OpenAI | gpt-4, gpt-3.5-turbo |
+| Anthropic | claude-opus-4, claude-sonnet-4 |
+| Google | gemini-2.0-flash, gemini-2.5-pro |
