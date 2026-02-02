@@ -3,7 +3,9 @@ OpenAI Provider.
 No transformation needed - OpenAI format is the standard.
 """
 
-from typing import Dict, Any
+from typing import Any
+
+from models import ChatCompletionRequest
 from providers.base import BaseProvider
 
 
@@ -21,19 +23,17 @@ class OpenAIProvider(BaseProvider):
     def provider_name(self) -> str:
         return "openai"
 
-    def get_headers(self) -> Dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
+    def get_headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
 
-    def get_endpoint(self) -> str:
+    def get_endpoint(self, model: str = None) -> str:
         return "/chat/completions"
 
-    def transform_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """No transformation needed - already in OpenAI format."""
-        return request
+    def transform_request(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Validate and pass through - already in OpenAI format."""
+        openai_request = ChatCompletionRequest.model_validate(request)
+        return openai_request.model_dump(exclude_none=True)
 
-    def transform_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
+    def transform_response(self, response: dict[str, Any], model: str = None) -> dict[str, Any]:
         """No transformation needed - already in OpenAI format."""
         return response

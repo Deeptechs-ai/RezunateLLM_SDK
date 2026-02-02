@@ -1,27 +1,41 @@
 """
 Provider Registry.
+
 Uses Factory Method Pattern for creating provider instances.
 """
 
-from typing import Dict, Type
-from providers.base import BaseProvider
-from providers.openai_provider import OpenAIProvider
 from providers.anthropic_provider import AnthropicProvider
-from providers.google_provider import GoogleProvider
+from providers.base import BaseProvider
 from providers.factory import (
-    ProviderFactory,
-    OpenAIFactory,
+    FACTORY_REGISTRY,
     AnthropicFactory,
     GoogleFactory,
-    FACTORY_REGISTRY,
+    OpenAIFactory,
+    ProviderFactory,
     get_factory,
     register_factory,
 )
+from providers.google_provider import GoogleProvider
+from providers.openai_provider import OpenAIProvider
 
+__all__ = [
+    "AnthropicProvider",
+    "BaseProvider",
+    "GoogleProvider",
+    "OpenAIProvider",
+    "FACTORY_REGISTRY",
+    "AnthropicFactory",
+    "GoogleFactory",
+    "OpenAIFactory",
+    "ProviderFactory",
+    "get_factory",
+    "register_factory",
+    "PROVIDERS",
+    "get_provider",
+    "list_providers",
+]
 
-# ============== Provider Registry ==============
-# Keep for backward compatibility and direct access
-PROVIDERS: Dict[str, Type[BaseProvider]] = {
+PROVIDERS: dict[str, type[BaseProvider]] = {
     "openai": OpenAIProvider,
     "anthropic": AnthropicProvider,
     "google": GoogleProvider,
@@ -47,27 +61,6 @@ def get_provider(provider_name: str, api_key: str, **kwargs) -> BaseProvider:
     return factory.create_provider(api_key=api_key, **kwargs)
 
 
-def list_providers() -> list:
+def list_providers() -> list[str]:
     """Return list of available provider names."""
     return list(FACTORY_REGISTRY.keys())
-
-
-# Export
-__all__ = [
-    # Provider classes
-    "PROVIDERS",
-    "get_provider",
-    "list_providers",
-    "BaseProvider",
-    "OpenAIProvider",
-    "AnthropicProvider",
-    "GoogleProvider",
-    # Factory classes
-    "ProviderFactory",
-    "OpenAIFactory",
-    "AnthropicFactory",
-    "GoogleFactory",
-    "FACTORY_REGISTRY",
-    "get_factory",
-    "register_factory",
-]
