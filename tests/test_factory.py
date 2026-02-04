@@ -18,6 +18,22 @@ from providers.google_provider import GoogleProvider
 from providers.openai_provider import OpenAIProvider
 
 
+@pytest.fixture
+def clean_registry():
+    """Fixture that saves and restores FACTORY_REGISTRY state.
+
+    Ensures test isolation even if tests fail before manual cleanup.
+    """
+    # Save original state
+    original_registry = FACTORY_REGISTRY.copy()
+
+    yield FACTORY_REGISTRY
+
+    # Restore original state after test
+    FACTORY_REGISTRY.clear()
+    FACTORY_REGISTRY.update(original_registry)
+
+
 class TestFactoryRegistry:
     """Tests for factory registry."""
 
@@ -74,7 +90,7 @@ class TestGetFactory:
 class TestRegisterFactory:
     """Tests for register_factory function."""
 
-    def test_register_new_factory(self, mock_api_key):
+    def test_register_new_factory(self, mock_api_key, clean_registry):
         """Test registering a new factory."""
 
         # Create a mock factory
@@ -91,11 +107,9 @@ class TestRegisterFactory:
 
         assert "mock_provider" in FACTORY_REGISTRY
         assert get_factory("mock_provider") is mock_factory
+        # Cleanup handled by clean_registry fixture
 
-        # Cleanup
-        del FACTORY_REGISTRY["mock_provider"]
-
-    def test_register_overwrites_existing(self):
+    def test_register_overwrites_existing(self, clean_registry):
         """Test registering overwrites existing factory."""
         original_factory = FACTORY_REGISTRY["openai"]
 
@@ -111,9 +125,8 @@ class TestRegisterFactory:
         register_factory("openai", new_factory)
 
         assert FACTORY_REGISTRY["openai"] is new_factory
-
-        # Restore original
-        FACTORY_REGISTRY["openai"] = original_factory
+        assert FACTORY_REGISTRY["openai"] is not original_factory
+        # Cleanup handled by clean_registry fixture
 
 
 class TestOpenAIFactory:
