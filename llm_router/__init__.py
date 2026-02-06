@@ -4,9 +4,9 @@ A unified Python library for chat completions across multiple AI providers
 (OpenAI, Anthropic, Google) using OpenAI-compatible request/response format.
 """
 
-from gateway import Gateway, chat_complete, get_available_providers
-from models import ChatCompletionRequest, ChatCompletionResponse, Message
-from providers import (
+from llm_router.gateway import Gateway, chat_complete, get_available_providers
+from llm_router.models import ChatCompletionRequest, ChatCompletionResponse, Message
+from llm_router.providers import (
     PROVIDERS,
     AnthropicProvider,
     BaseProvider,

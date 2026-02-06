@@ -4,7 +4,7 @@ Tests for Google (Gemini) Provider.
 
 import responses
 
-from providers.google_provider import GoogleProvider
+from llm_router.providers.google_provider import GoogleProvider
 
 
 class TestGoogleProviderProperties:

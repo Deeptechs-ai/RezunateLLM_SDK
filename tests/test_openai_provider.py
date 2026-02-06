@@ -4,7 +4,7 @@ Tests for OpenAI Provider.
 
 import responses
 
-from providers.openai_provider import OpenAIProvider
+from llm_router.providers.openai_provider import OpenAIProvider
 
 
 class TestOpenAIProviderProperties:

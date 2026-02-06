@@ -5,7 +5,12 @@ Tests for Gateway (main router).
 import pytest
 import responses
 
-from gateway import ChatCompletionRequest, Gateway, chat_complete, get_available_providers
+from llm_router.gateway import (
+    ChatCompletionRequest,
+    Gateway,
+    chat_complete,
+    get_available_providers,
+)
 
 
 class TestChatComplete:
