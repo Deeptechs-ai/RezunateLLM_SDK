@@ -4,7 +4,7 @@ Tests for Anthropic Provider.
 
 import responses
 
-from providers.anthropic_provider import AnthropicProvider
+from llm_router.providers.anthropic_provider import AnthropicProvider
 
 
 class TestAnthropicProviderProperties:

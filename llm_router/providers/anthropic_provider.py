@@ -9,13 +9,13 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from models import ChatCompletionResponse, Choice, ResponseMessage, Usage
-from providers.anthropic_models import (
+from llm_router.models import ChatCompletionResponse, Choice, ResponseMessage, Usage
+from llm_router.providers.anthropic_models import (
     AnthropicMessage,
     AnthropicRequest,
     AnthropicResponse,
 )
-from providers.base import BaseProvider
+from llm_router.providers.base import BaseProvider
 
 
 class AnthropicProvider(BaseProvider):

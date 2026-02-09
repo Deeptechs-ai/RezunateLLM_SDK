@@ -5,8 +5,8 @@ No transformation needed - OpenAI format is the standard.
 
 from typing import Any
 
-from models import ChatCompletionRequest
-from providers.base import BaseProvider
+from llm_router.models import ChatCompletionRequest
+from llm_router.providers.base import BaseProvider
 
 
 class OpenAIProvider(BaseProvider):

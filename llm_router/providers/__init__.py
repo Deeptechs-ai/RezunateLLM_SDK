@@ -4,9 +4,9 @@ Provider Registry.
 Uses Factory Method Pattern for creating provider instances.
 """
 
-from providers.anthropic_provider import AnthropicProvider
-from providers.base import BaseProvider
-from providers.factory import (
+from llm_router.providers.anthropic_provider import AnthropicProvider
+from llm_router.providers.base import BaseProvider
+from llm_router.providers.factory import (
     FACTORY_REGISTRY,
     AnthropicFactory,
     GoogleFactory,
@@ -15,8 +15,8 @@ from providers.factory import (
     get_factory,
     register_factory,
 )
-from providers.google_provider import GoogleProvider
-from providers.openai_provider import OpenAIProvider
+from llm_router.providers.google_provider import GoogleProvider
+from llm_router.providers.openai_provider import OpenAIProvider
 
 __all__ = [
     "AnthropicProvider",

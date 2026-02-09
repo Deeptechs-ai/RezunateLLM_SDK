@@ -5,7 +5,7 @@ Each provider has its own factory class for creating instances.
 
 from abc import ABC, abstractmethod
 
-from providers.base import BaseProvider
+from llm_router.providers.base import BaseProvider
 
 
 class ProviderFactory(ABC):
@@ -43,7 +43,7 @@ class OpenAIFactory(ProviderFactory):
         return "openai"
 
     def create_provider(self, api_key: str, **kwargs) -> BaseProvider:
-        from providers.openai_provider import OpenAIProvider
+        from llm_router.providers.openai_provider import OpenAIProvider
 
         return OpenAIProvider(api_key=api_key, **kwargs)
 
@@ -56,7 +56,7 @@ class AnthropicFactory(ProviderFactory):
         return "anthropic"
 
     def create_provider(self, api_key: str, **kwargs) -> BaseProvider:
-        from providers.anthropic_provider import AnthropicProvider
+        from llm_router.providers.anthropic_provider import AnthropicProvider
 
         return AnthropicProvider(api_key=api_key, **kwargs)
 
@@ -69,7 +69,7 @@ class GoogleFactory(ProviderFactory):
         return "google"
 
     def create_provider(self, api_key: str, **kwargs) -> BaseProvider:
-        from providers.google_provider import GoogleProvider
+        from llm_router.providers.google_provider import GoogleProvider
 
         return GoogleProvider(api_key=api_key, **kwargs)
 

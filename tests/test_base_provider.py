@@ -5,7 +5,7 @@ Tests for BaseProvider class.
 import pytest
 import responses
 
-from providers.base import (
+from llm_router.providers.base import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_RETRY_DELAY,
     BaseProvider,

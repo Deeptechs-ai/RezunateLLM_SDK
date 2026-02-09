@@ -10,7 +10,7 @@ from typing import Any
 
 import requests
 
-from models import ChatCompletionResponse, ErrorInfo, Usage
+from llm_router.models import ChatCompletionResponse, ErrorInfo, Usage
 
 # Retry configuration
 DEFAULT_MAX_RETRIES = 3

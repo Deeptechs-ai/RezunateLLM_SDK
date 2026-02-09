@@ -1,7 +1,7 @@
 """Gateway - Routes chat completion requests to providers."""
 
-from models import ChatCompletionRequest, ChatCompletionResponse
-from providers import get_provider, list_providers
+from llm_router.models import ChatCompletionRequest, ChatCompletionResponse
+from llm_router.providers import get_provider, list_providers
 
 
 def chat_complete(
