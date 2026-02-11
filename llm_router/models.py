@@ -9,6 +9,20 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class GuardrailRule(BaseModel):
+    """A single guardrail rule with a regex pattern."""
+
+    name: str
+    pattern: str
+    description: str = ""
+
+
+class GuardrailsConfig(BaseModel):
+    """Configuration holding a list of guardrail rules."""
+
+    guardrails: list[GuardrailRule]
+
+
 class Message(BaseModel):
     """A chat message."""
 
