@@ -3,9 +3,7 @@ OpenAI Provider.
 No transformation needed - OpenAI format is the standard.
 """
 
-from typing import Any
-
-from llm_router.models import ChatCompletionRequest
+from llm_router.models import ChatCompletionRequest, ChatCompletionResponse
 from llm_router.providers.base import BaseProvider
 
 
@@ -14,6 +12,8 @@ class OpenAIProvider(BaseProvider):
     OpenAI Provider implementation.
     Since OpenAI format is our standard, no transformation is needed.
     """
+
+    response_model = ChatCompletionResponse
 
     @property
     def base_url(self) -> str:
@@ -29,11 +29,12 @@ class OpenAIProvider(BaseProvider):
     def get_endpoint(self, model: str = None) -> str:
         return "/chat/completions"
 
-    def transform_request(self, request: dict[str, Any]) -> dict[str, Any]:
+    def transform_request(self, request: ChatCompletionRequest) -> ChatCompletionRequest:
         """Validate and pass through - already in OpenAI format."""
-        openai_request = ChatCompletionRequest.model_validate(request)
-        return openai_request.model_dump(exclude_none=True)
+        return request
 
-    def transform_response(self, response: dict[str, Any], model: str = None) -> dict[str, Any]:
+    def transform_response(
+        self, response: ChatCompletionResponse, model: str | None = None
+    ) -> ChatCompletionResponse:
         """No transformation needed - already in OpenAI format."""
         return response

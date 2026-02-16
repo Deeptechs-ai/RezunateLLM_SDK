@@ -63,8 +63,7 @@ def chat_complete(
                 logger.warning("GUARDRAIL %s [%s]: %s", v.action.name, v.direction.name, v)
 
     provider_instance = get_provider(provider, api_key, model=request.model)
-    response_dict = provider_instance.chat_complete(request.model_dump(exclude_none=True))
-    response = ChatCompletionResponse.model_validate(response_dict)
+    response = provider_instance.chat_complete(request)
 
     if config:
         for choice in response.choices:

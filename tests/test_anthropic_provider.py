@@ -4,6 +4,8 @@ Tests for Anthropic Provider.
 
 import responses
 
+from llm_router.models import ChatCompletionRequest, ChatCompletionResponse
+from llm_router.providers.anthropic_models import AnthropicRequest, AnthropicResponse
 from llm_router.providers.anthropic_provider import AnthropicProvider
 
 
@@ -46,12 +48,16 @@ class TestAnthropicTransformRequest:
             "messages": [{"role": "user", "content": "Hello!"}],
             "max_tokens": 100,
         }
+        req_obj = ChatCompletionRequest.model_validate(openai_request)
 
-        result = provider.transform_request(openai_request)
+        result = provider.transform_request(req_obj)
 
-        assert result["model"] == "claude-sonnet-4-20250514"
-        assert result["max_tokens"] == 100
-        assert result["messages"] == [{"role": "user", "content": "Hello!"}]
+        assert isinstance(result, AnthropicRequest)
+        assert result.model == "claude-sonnet-4-20250514"
+        assert result.max_tokens == 100
+        assert len(result.messages) == 1
+        assert result.messages[0].role == "user"
+        assert result.messages[0].content == "Hello!"
 
     def test_system_message_extraction(self, mock_api_key, sample_messages):
         """Test system message is extracted to separate parameter."""
@@ -61,13 +67,14 @@ class TestAnthropicTransformRequest:
             "messages": sample_messages,
             "max_tokens": 100,
         }
+        req_obj = ChatCompletionRequest.model_validate(openai_request)
 
-        result = provider.transform_request(openai_request)
+        result = provider.transform_request(req_obj)
 
-        assert result["system"] == "You are a helpful assistant."
-        assert len(result["messages"]) == 1
-        assert result["messages"][0]["role"] == "user"
-        assert result["messages"][0]["content"] == "Hello!"
+        assert result.system == "You are a helpful assistant."
+        assert len(result.messages) == 1
+        assert result.messages[0].role == "user"
+        assert result.messages[0].content == "Hello!"
 
     def test_default_max_tokens(self, mock_api_key):
         """Test default max_tokens is set when not provided."""
@@ -76,10 +83,11 @@ class TestAnthropicTransformRequest:
             "model": "claude-sonnet-4-20250514",
             "messages": [{"role": "user", "content": "Hello!"}],
         }
+        req_obj = ChatCompletionRequest.model_validate(openai_request)
 
-        result = provider.transform_request(openai_request)
+        result = provider.transform_request(req_obj)
 
-        assert result["max_tokens"] == 1024
+        assert result.max_tokens == 1024
 
     def test_temperature_passed_through(self, mock_api_key):
         """Test temperature is passed through."""
@@ -89,10 +97,11 @@ class TestAnthropicTransformRequest:
             "messages": [{"role": "user", "content": "Hello!"}],
             "temperature": 0.7,
         }
+        req_obj = ChatCompletionRequest.model_validate(openai_request)
 
-        result = provider.transform_request(openai_request)
+        result = provider.transform_request(req_obj)
 
-        assert result["temperature"] == 0.7
+        assert result.temperature == 0.7
 
     def test_conversation_roles_mapped(self, mock_api_key, sample_conversation):
         """Test conversation roles are mapped correctly."""
@@ -101,17 +110,18 @@ class TestAnthropicTransformRequest:
             "model": "claude-sonnet-4-20250514",
             "messages": sample_conversation,
         }
+        req_obj = ChatCompletionRequest.model_validate(openai_request)
 
-        result = provider.transform_request(openai_request)
+        result = provider.transform_request(req_obj)
 
         # System message extracted
-        assert result["system"] == "You are a helpful assistant."
+        assert result.system == "You are a helpful assistant."
 
         # Check remaining messages
-        assert len(result["messages"]) == 3
-        assert result["messages"][0]["role"] == "user"
-        assert result["messages"][1]["role"] == "assistant"
-        assert result["messages"][2]["role"] == "user"
+        assert len(result.messages) == 3
+        assert result.messages[0].role == "user"
+        assert result.messages[1].role == "assistant"
+        assert result.messages[2].role == "user"
 
     def test_anthropic_specific_params(self, mock_api_key):
         """Test Anthropic-specific parameters are passed through."""
@@ -122,11 +132,12 @@ class TestAnthropicTransformRequest:
             "top_k": 40,
             "metadata": {"user_id": "123"},
         }
+        req_obj = ChatCompletionRequest.model_validate(openai_request)
 
-        result = provider.transform_request(openai_request)
+        result = provider.transform_request(req_obj)
 
-        assert result["top_k"] == 40
-        assert result["metadata"] == {"user_id": "123"}
+        assert result.top_k == 40
+        assert result.metadata == {"user_id": "123"}
 
 
 class TestAnthropicTransformResponse:
@@ -136,13 +147,15 @@ class TestAnthropicTransformResponse:
         """Test basic response is transformed correctly."""
         provider = AnthropicProvider(api_key=mock_api_key)
 
-        result = provider.transform_response(anthropic_response)
+        resp_obj = AnthropicResponse.model_validate(anthropic_response)
+        result = provider.transform_response(resp_obj)
 
-        assert result["object"] == "chat.completion"
-        assert result["model"] == "claude-sonnet-4-20250514"
-        assert len(result["choices"]) == 1
-        assert result["choices"][0]["message"]["role"] == "assistant"
-        assert result["choices"][0]["message"]["content"] == "Hello! How can I assist you today?"
+        assert isinstance(result, ChatCompletionResponse)
+        assert result.object == "chat.completion"
+        assert result.model == "claude-sonnet-4-20250514"
+        assert len(result.choices) == 1
+        assert result.choices[0].message.role == "assistant"
+        assert result.choices[0].message.content == "Hello! How can I assist you today?"
 
     def test_stop_reason_mapping_end_turn(self, mock_api_key):
         """Test end_turn maps to stop."""
@@ -154,9 +167,10 @@ class TestAnthropicTransformResponse:
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
 
-        result = provider.transform_response(response)
+        resp_obj = AnthropicResponse.model_validate(response)
+        result = provider.transform_response(resp_obj)
 
-        assert result["choices"][0]["finish_reason"] == "stop"
+        assert result.choices[0].finish_reason == "stop"
 
     def test_stop_reason_mapping_max_tokens(self, mock_api_key):
         """Test max_tokens maps to length."""
@@ -168,9 +182,10 @@ class TestAnthropicTransformResponse:
             "usage": {"input_tokens": 10, "output_tokens": 100},
         }
 
-        result = provider.transform_response(response)
+        resp_obj = AnthropicResponse.model_validate(response)
+        result = provider.transform_response(resp_obj)
 
-        assert result["choices"][0]["finish_reason"] == "length"
+        assert result.choices[0].finish_reason == "length"
 
     def test_stop_reason_mapping_tool_use(self, mock_api_key):
         """Test tool_use maps to tool_calls."""
@@ -182,19 +197,21 @@ class TestAnthropicTransformResponse:
             "usage": {"input_tokens": 10, "output_tokens": 20},
         }
 
-        result = provider.transform_response(response)
+        resp_obj = AnthropicResponse.model_validate(response)
+        result = provider.transform_response(resp_obj)
 
-        assert result["choices"][0]["finish_reason"] == "tool_calls"
+        assert result.choices[0].finish_reason == "tool_calls"
 
     def test_usage_transformation(self, mock_api_key, anthropic_response):
         """Test usage is transformed correctly."""
         provider = AnthropicProvider(api_key=mock_api_key)
 
-        result = provider.transform_response(anthropic_response)
+        resp_obj = AnthropicResponse.model_validate(anthropic_response)
+        result = provider.transform_response(resp_obj)
 
-        assert result["usage"]["prompt_tokens"] == 10
-        assert result["usage"]["completion_tokens"] == 20
-        assert result["usage"]["total_tokens"] == 30
+        assert result.usage.prompt_tokens == 10
+        assert result.usage.completion_tokens == 20
+        assert result.usage.total_tokens == 30
 
     def test_multiple_content_blocks(self, mock_api_key):
         """Test multiple text content blocks are concatenated."""
@@ -209,18 +226,20 @@ class TestAnthropicTransformResponse:
             "usage": {"input_tokens": 10, "output_tokens": 20},
         }
 
-        result = provider.transform_response(response)
+        resp_obj = AnthropicResponse.model_validate(response)
+        result = provider.transform_response(resp_obj)
 
-        assert result["choices"][0]["message"]["content"] == "First part. Second part."
+        assert result.choices[0].message.content == "First part. Second part."
 
     def test_response_has_created_timestamp(self, mock_api_key, anthropic_response):
         """Test response includes created timestamp."""
         provider = AnthropicProvider(api_key=mock_api_key)
 
-        result = provider.transform_response(anthropic_response)
+        resp_obj = AnthropicResponse.model_validate(anthropic_response)
+        result = provider.transform_response(resp_obj)
 
-        assert "created" in result
-        assert isinstance(result["created"], int)
+        assert result.created > 0
+        assert isinstance(result.created, int)
 
 
 class TestAnthropicIntegration:
@@ -242,11 +261,12 @@ class TestAnthropicIntegration:
             "messages": sample_messages,
             "max_tokens": 100,
         }
+        req_obj = ChatCompletionRequest.model_validate(openai_request)
 
-        result = provider.chat_complete(openai_request)
+        result = provider.chat_complete(req_obj)
 
-        assert result["choices"][0]["message"]["content"] == "Hello! How can I assist you today?"
-        assert result["provider"] == "anthropic"
+        assert result.choices[0].message.content == "Hello! How can I assist you today?"
+        assert result.provider == "anthropic"
 
     @responses.activate
     def test_request_body_format(self, mock_api_key, sample_messages, anthropic_response):
@@ -264,8 +284,9 @@ class TestAnthropicIntegration:
             "messages": sample_messages,
             "max_tokens": 100,
         }
+        req_obj = ChatCompletionRequest.model_validate(openai_request)
 
-        provider.chat_complete(openai_request)
+        provider.chat_complete(req_obj)
 
         # Verify request was transformed
         import json

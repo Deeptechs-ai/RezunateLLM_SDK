@@ -112,8 +112,8 @@ class ChatCompletionResponse(BaseModel):
     id: str | None = None
     object: Literal["chat.completion"] = "chat.completion"
     created: int = 0
-    model: str
+    model: str | None = None
     choices: list[Choice] = Field(default_factory=list)
     usage: Usage = Field(default_factory=Usage)
-    provider: str
+    provider: str | None = None
     error: ErrorInfo | None = None

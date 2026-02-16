@@ -6,11 +6,11 @@ All providers inherit from this class.
 import random
 import time
 from abc import ABC, abstractmethod
-from typing import Any
 
 import requests
+from pydantic import BaseModel
 
-from llm_router.models import ChatCompletionResponse, ErrorInfo, Usage
+from llm_router.models import ChatCompletionRequest, ChatCompletionResponse, ErrorInfo, Usage
 
 # Retry configuration
 DEFAULT_MAX_RETRIES = 3
@@ -23,6 +23,8 @@ class BaseProvider(ABC):
     Abstract base class for all providers.
     Each provider must implement these methods.
     """
+
+    response_model: type[BaseModel] | None = None
 
     def __init__(
         self,
@@ -55,12 +57,12 @@ class BaseProvider(ABC):
         pass
 
     @abstractmethod
-    def get_endpoint(self, model: str = None) -> str:
+    def get_endpoint(self, model: str | None = None) -> str:
         """Return the chat completion endpoint."""
         pass
 
     @abstractmethod
-    def transform_request(self, request: dict[str, Any]) -> dict[str, Any]:
+    def transform_request(self, request: ChatCompletionRequest) -> BaseModel:
         """
         Transform OpenAI format request to provider's format.
         For OpenAI provider, this returns the request unchanged.
@@ -68,10 +70,11 @@ class BaseProvider(ABC):
         pass
 
     @abstractmethod
-    def transform_response(self, response: dict[str, Any], model: str = None) -> dict[str, Any]:
+    def transform_response(
+        self, response: BaseModel, model: str | None = None
+    ) -> ChatCompletionResponse:
         """
-        Transform provider's response to OpenAI format.
-        For OpenAI provider, this returns the response unchanged.
+        Transform provider's response Pydantic model to OpenAI format.
         """
         pass
 
@@ -86,7 +89,7 @@ class BaseProvider(ABC):
         """Check if the error is retryable based on status code."""
         return status_code in RETRYABLE_STATUS_CODES
 
-    def chat_complete(self, request: dict[str, Any]) -> dict[str, Any]:
+    def chat_complete(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         """
         Execute chat completion with retry logic.
 
@@ -99,7 +102,7 @@ class BaseProvider(ABC):
         provider_request = self.transform_request(request)
 
         # Extract model for endpoint and response transformation
-        model = request.get("model")
+        model = request.model
 
         # Build full URL
         url = f"{self.base_url}{self.get_endpoint(model)}"
@@ -110,14 +113,24 @@ class BaseProvider(ABC):
         for attempt in range(self.max_retries + 1):
             try:
                 response = requests.post(
-                    url, headers=self.get_headers(), json=provider_request, timeout=self.timeout
+                    url,
+                    headers=self.get_headers(),
+                    json=provider_request.model_dump(exclude_none=True),
+                    timeout=self.timeout,
                 )
                 response.raise_for_status()
-                provider_response = response.json()
+                provider_response_dict = response.json()
+
+                # Validate response using provider's model
+                if self.response_model:
+                    provider_response = self.response_model.model_validate(provider_response_dict)
+                else:
+                    # Fallback for providers without models (though we aim to have models for all)
+                    provider_response = provider_response_dict
 
                 # Success - transform and return
                 openai_response = self.transform_response(provider_response, model)
-                openai_response["provider"] = self.provider_name
+                openai_response.provider = self.provider_name
                 return openai_response
 
             except requests.exceptions.RequestException as e:
@@ -162,4 +175,4 @@ class BaseProvider(ABC):
             ),
         )
 
-        return error_response.model_dump()
+        return error_response
