@@ -14,6 +14,7 @@ from llm_router.models import (
     Usage,
 )
 from llm_router.providers.base import BaseProvider
+from llm_router.providers.endpoints import GOOGLE_BASE_URL, GOOGLE_GENERATE_CONTENT_ENDPOINT
 from llm_router.providers.google_models import (
     GoogleContentBlock,
     GoogleGenerationConfig,
@@ -37,7 +38,7 @@ class GoogleProvider(BaseProvider):
 
     @property
     def base_url(self) -> str:
-        return "https://generativelanguage.googleapis.com/v1beta"
+        return GOOGLE_BASE_URL
 
     @property
     def provider_name(self) -> str:
@@ -47,7 +48,7 @@ class GoogleProvider(BaseProvider):
         return {"Content-Type": "application/json", "x-goog-api-key": self.api_key}
 
     def get_endpoint(self, model: str = None) -> str:
-        return f"/models/{model}:generateContent"
+        return GOOGLE_GENERATE_CONTENT_ENDPOINT.format(model=model)
 
     def transform_request(self, request: ChatCompletionRequest) -> GoogleRequest:
         """Transform OpenAI format request to Google Gemini format.

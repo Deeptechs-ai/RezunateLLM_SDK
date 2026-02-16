@@ -6,11 +6,13 @@ All providers inherit from this class.
 import random
 import time
 from abc import ABC, abstractmethod
+from typing import Any
 
 import requests
 from pydantic import BaseModel
 
 from llm_router.models import ChatCompletionRequest, ChatCompletionResponse, ErrorInfo, Usage
+from llm_router.providers.endpoints import get_url
 
 # Retry configuration
 DEFAULT_MAX_RETRIES = 3
@@ -94,7 +96,7 @@ class BaseProvider(ABC):
         Execute chat completion with retry logic.
 
         1. Transform request to provider format
-        2. Call provider API (with retries)
+        2. Execute request (with retries)
         3. Transform response to OpenAI format
         4. Return response
         """
@@ -104,10 +106,29 @@ class BaseProvider(ABC):
         # Extract model for endpoint and response transformation
         model = request.model
 
-        # Build full URL
-        url = f"{self.base_url}{self.get_endpoint(model)}"
+        try:
+            # Execute the request (subclasses can override this to use an SDK)
+            provider_response = self._execute_request(provider_request, model)
 
+            # Success - transform and return
+            openai_response = self.transform_response(provider_response, model)
+            openai_response.provider = self.provider_name
+            return openai_response
+
+        except Exception as e:
+            # Return error in consistent OpenAI format
+            return self._handle_error(e, model)
+
+    def _execute_request(self, provider_request: BaseModel, model: str | None = None) -> Any:
+        """
+        Execute the request with retry logic.
+        Default implementation uses the requests library.
+        Subclasses can override this to use their own SDKs.
+        """
+        # Build full URL
+        url = get_url(self.base_url, self.get_endpoint(model))
         last_error = None
+        attempt = 0
 
         # Retry loop
         for attempt in range(self.max_retries + 1):
@@ -123,21 +144,12 @@ class BaseProvider(ABC):
 
                 # Validate response using provider's model
                 if self.response_model:
-                    provider_response = self.response_model.model_validate(provider_response_dict)
-                else:
-                    # Fallback for providers without models (though we aim to have models for all)
-                    provider_response = provider_response_dict
-
-                # Success - transform and return
-                openai_response = self.transform_response(provider_response, model)
-                openai_response.provider = self.provider_name
-                return openai_response
+                    return self.response_model.model_validate(provider_response_dict)
+                return provider_response_dict
 
             except requests.exceptions.RequestException as e:
                 last_error = e
-                status_code = (
-                    getattr(e.response, "status_code", None) if hasattr(e, "response") else None
-                )
+                status_code = getattr(e.response, "status_code", None) if hasattr(e, "response") else None
 
                 # Check if we should retry
                 is_timeout = isinstance(e, requests.exceptions.Timeout)
@@ -150,17 +162,19 @@ class BaseProvider(ABC):
                     time.sleep(backoff)
                     continue
 
-                # No more retries - return error
-                break
+                # No more retries
+                raise last_error from e
 
-        # Return error in consistent OpenAI format using Pydantic models
-        error_code = (
-            getattr(last_error.response, "status_code", None)
-            if hasattr(last_error, "response")
-            else None
-        )
+        # Should not reach here if max_retries >= 0
+        raise last_error if last_error else RuntimeError("Request failed without error")
 
-        error_response = ChatCompletionResponse(
+    def _handle_error(self, error: Exception, model: str | None = None) -> ChatCompletionResponse:
+        """Centralized error handling for all providers."""
+        status_code = None
+        if hasattr(error, "response") and error.response is not None:
+            status_code = getattr(error.response, "status_code", None)
+
+        return ChatCompletionResponse(
             id=None,
             created=int(time.time()),
             model=model,
@@ -168,11 +182,8 @@ class BaseProvider(ABC):
             usage=Usage(),
             provider=self.provider_name,
             error=ErrorInfo(
-                message=str(last_error),
+                message=str(error),
                 type="api_error",
-                code=error_code,
-                retries_attempted=attempt,
+                code=status_code,
             ),
         )
-
-        return error_response

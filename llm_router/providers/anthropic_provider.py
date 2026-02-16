@@ -19,6 +19,7 @@ from llm_router.providers.anthropic_models import (
     AnthropicResponse,
 )
 from llm_router.providers.base import BaseProvider
+from llm_router.providers.endpoints import ANTHROPIC_BASE_URL, ANTHROPIC_MESSAGES_ENDPOINT
 
 
 class AnthropicProvider(BaseProvider):
@@ -31,7 +32,7 @@ class AnthropicProvider(BaseProvider):
 
     @property
     def base_url(self) -> str:
-        return "https://api.anthropic.com/v1"
+        return ANTHROPIC_BASE_URL
 
     @property
     def provider_name(self) -> str:
@@ -45,7 +46,7 @@ class AnthropicProvider(BaseProvider):
         }
 
     def get_endpoint(self, model: str | None = None) -> str:
-        return "/messages"
+        return ANTHROPIC_MESSAGES_ENDPOINT
 
     def transform_request(self, request: ChatCompletionRequest) -> AnthropicRequest:
         """
