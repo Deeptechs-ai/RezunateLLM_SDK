@@ -6,11 +6,14 @@ Transforms OpenAI format to Anthropic format
 import time
 import uuid
 
+import llm_router.constants as constants
 from llm_router.models import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     Choice,
+    Provider,
     ResponseMessage,
+    Role,
     Usage,
 )
 from llm_router.providers.anthropic_models import (
@@ -19,7 +22,11 @@ from llm_router.providers.anthropic_models import (
     AnthropicResponse,
 )
 from llm_router.providers.base import BaseProvider
-from llm_router.providers.endpoints import ANTHROPIC_BASE_URL, ANTHROPIC_MESSAGES_ENDPOINT
+from llm_router.providers.endpoints import (
+    ANTHROPIC_BASE_URL,
+    ANTHROPIC_DEFAULT_VERSION,
+    ANTHROPIC_MESSAGES_ENDPOINT,
+)
 
 
 class AnthropicProvider(BaseProvider):
@@ -35,14 +42,14 @@ class AnthropicProvider(BaseProvider):
         return ANTHROPIC_BASE_URL
 
     @property
-    def provider_name(self) -> str:
-        return "anthropic"
+    def provider_name(self) -> Provider:
+        return Provider.ANTHROPIC
 
     def get_headers(self) -> dict[str, str]:
         return {
-            "x-api-key": self.api_key,
-            "Content-Type": "application/json",
-            "anthropic-version": "2023-06-01",
+            constants.API_KEY_HEADER: self.api_key,
+            constants.CONTENT_TYPE_HEADER: constants.APPLICATION_JSON,
+            constants.ANTHROPIC_VERSION_HEADER: ANTHROPIC_DEFAULT_VERSION,
         }
 
     def get_endpoint(self, model: str | None = None) -> str:
@@ -67,11 +74,11 @@ class AnthropicProvider(BaseProvider):
             content = msg.content
 
             # Anthropic handles system separately
-            if role == "system":
+            if role == Role.SYSTEM:
                 system_content = content
             else:
                 # Map OpenAI roles to Anthropic roles
-                anthropic_role = "assistant" if role == "assistant" else "user"
+                anthropic_role = "assistant" if role == Role.ASSISTANT else "user"
                 anthropic_messages.append(AnthropicMessage(role=anthropic_role, content=content))
 
         # Build Anthropic request using pydantic model

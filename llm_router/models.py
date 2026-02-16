@@ -5,9 +5,25 @@ Defines request and response models following OpenAI format as the universal sta
 """
 
 from enum import Enum
-from typing import Literal
+from typing import Literal, Union
 
 from pydantic import BaseModel, Field
+
+
+class Provider(str, Enum):
+    """Available LLM providers."""
+
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    GOOGLE = "google"
+
+
+class Role(str, Enum):
+    """Message roles."""
+
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
 
 
 class GuardrailDirection(str, Enum):
@@ -52,7 +68,7 @@ class GuardrailViolation(BaseModel):
 class Message(BaseModel):
     """A chat message."""
 
-    role: Literal["system", "user", "assistant"]
+    role: Role
     content: str
 
 
@@ -85,7 +101,7 @@ class Usage(BaseModel):
 class ResponseMessage(BaseModel):
     """Message in a chat completion response."""
 
-    role: Literal["assistant"] = "assistant"
+    role: Role = Role.ASSISTANT
     content: str | None = None
 
 
@@ -110,10 +126,10 @@ class ChatCompletionResponse(BaseModel):
     """Response model for chat completion in OpenAI format."""
 
     id: str | None = None
-    object: Literal["chat.completion"] = "chat.completion"
+    object: str = "chat.completion"
     created: int = 0
     model: str | None = None
     choices: list[Choice] = Field(default_factory=list)
     usage: Usage = Field(default_factory=Usage)
-    provider: str | None = None
+    provider: Provider | None = None
     error: ErrorInfo | None = None

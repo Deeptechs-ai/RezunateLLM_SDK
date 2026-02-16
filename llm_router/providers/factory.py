@@ -4,7 +4,9 @@ Each provider has its own factory class for creating instances.
 """
 
 from abc import ABC, abstractmethod
+from typing import Union
 
+from llm_router.models import Provider
 from llm_router.providers.base import BaseProvider
 
 
@@ -30,7 +32,7 @@ class ProviderFactory(ABC):
 
     @property
     @abstractmethod
-    def provider_name(self) -> str:
+    def provider_name(self) -> Provider:
         """Return the name of the provider this factory creates."""
         pass
 
@@ -39,8 +41,8 @@ class OpenAIFactory(ProviderFactory):
     """Factory for creating OpenAI provider instances."""
 
     @property
-    def provider_name(self) -> str:
-        return "openai"
+    def provider_name(self) -> Provider:
+        return Provider.OPENAI
 
     def create_provider(self, api_key: str, **kwargs) -> BaseProvider:
         from llm_router.providers.openai_provider import OpenAIProvider
@@ -52,8 +54,8 @@ class AnthropicFactory(ProviderFactory):
     """Factory for creating Anthropic provider instances."""
 
     @property
-    def provider_name(self) -> str:
-        return "anthropic"
+    def provider_name(self) -> Provider:
+        return Provider.ANTHROPIC
 
     def create_provider(self, api_key: str, **kwargs) -> BaseProvider:
         from llm_router.providers.anthropic_provider import AnthropicProvider
@@ -65,8 +67,8 @@ class GoogleFactory(ProviderFactory):
     """Factory for creating Google/Gemini provider instances."""
 
     @property
-    def provider_name(self) -> str:
-        return "google"
+    def provider_name(self) -> Provider:
+        return Provider.GOOGLE
 
     def create_provider(self, api_key: str, **kwargs) -> BaseProvider:
         from llm_router.providers.google_provider import GoogleProvider
@@ -75,14 +77,14 @@ class GoogleFactory(ProviderFactory):
 
 
 # Factory Registry - maps provider names to factory instances
-FACTORY_REGISTRY: dict[str, ProviderFactory] = {
-    "openai": OpenAIFactory(),
-    "anthropic": AnthropicFactory(),
-    "google": GoogleFactory(),
+FACTORY_REGISTRY: dict[Provider, ProviderFactory] = {
+    Provider.OPENAI: OpenAIFactory(),
+    Provider.ANTHROPIC: AnthropicFactory(),
+    Provider.GOOGLE: GoogleFactory(),
 }
 
 
-def get_factory(provider_name: str) -> ProviderFactory:
+def get_factory(provider_name: Union[str, Provider]) -> ProviderFactory:
     """
     Get a factory instance by provider name.
 
@@ -95,8 +97,17 @@ def get_factory(provider_name: str) -> ProviderFactory:
     Raises:
         ValueError: If provider is not found
     """
+    if isinstance(provider_name, str):
+        try:
+            provider_name = Provider(provider_name.lower())
+        except ValueError:
+            available = ", ".join(p.value for p in FACTORY_REGISTRY.keys())
+            raise ValueError(
+                f"Unknown provider: '{provider_name}'. Available providers: {available}"
+            )
+
     if provider_name not in FACTORY_REGISTRY:
-        available = ", ".join(FACTORY_REGISTRY.keys())
+        available = ", ".join(p.value for p in FACTORY_REGISTRY.keys())
         raise ValueError(f"Unknown provider: '{provider_name}'. Available providers: {available}")
     return FACTORY_REGISTRY[provider_name]
 

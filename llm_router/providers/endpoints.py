@@ -7,6 +7,7 @@ OPENAI_CHAT_ENDPOINT = "/chat/completions"
 # Anthropic
 ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
 ANTHROPIC_MESSAGES_ENDPOINT = "/messages"
+ANTHROPIC_DEFAULT_VERSION = "2023-06-01"
 
 # Google (Gemini)
 GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
@@ -22,9 +23,9 @@ def get_url(base_url: str, endpoint: str, model: str | None = None) -> str:
     # This makes urljoin work predictably for path joining
     base = base_url if base_url.endswith("/") else f"{base_url}/"
     path = endpoint.lstrip("/")
-    
+
     url = urljoin(base, path)
-    
+
     if model:
         return url.format(model=model)
     return url

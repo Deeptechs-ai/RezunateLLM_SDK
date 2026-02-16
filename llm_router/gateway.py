@@ -3,6 +3,9 @@
 import logging
 from functools import lru_cache
 from pathlib import Path
+from typing import Union
+
+import llm_router.constants as constants
 
 from llm_router.guardrails import check_guardrails, load_guardrails
 from llm_router.models import (
@@ -10,19 +13,16 @@ from llm_router.models import (
     ChatCompletionResponse,
     GuardrailDirection,
     GuardrailsConfig,
+    Provider,
 )
 from llm_router.providers import get_provider, list_providers
 
 logger = logging.getLogger(__name__)
 
-# Default guardrails file path
-DEFAULT_GUARDRAILS_FILE = "guardrails.example.yaml"
-
-
 @lru_cache(maxsize=1)
 def _get_automatic_config() -> GuardrailsConfig | None:
     """Load default guardrails from guardrails.example.yaml if it exists."""
-    path = Path(DEFAULT_GUARDRAILS_FILE)
+    path = Path(constants.DEFAULT_GUARDRAILS_FILE)
     if not path.exists():
         return None
     try:
@@ -31,11 +31,11 @@ def _get_automatic_config() -> GuardrailsConfig | None:
         return config
     except Exception as e:
         logger.warning("Failed to load automatic guardrails from %s: %s", path, e)
-        return None
+    return None
 
 
 def chat_complete(
-    provider: str,
+    provider: Union[str, Provider],
     api_key: str,
     request: ChatCompletionRequest,
     guardrails_config: GuardrailsConfig | None = None,
@@ -74,7 +74,7 @@ def chat_complete(
     return response
 
 
-def get_available_providers() -> list[str]:
+def get_available_providers() -> list[Provider]:
     """Get list of available providers.
 
     Returns:
@@ -94,7 +94,7 @@ class Gateway:
 
     def __init__(
         self,
-        default_provider: str | None = None,
+        default_provider: Provider | str | None = None,
         default_api_key: str | None = None,
         guardrails_config: GuardrailsConfig | None = None,
     ) -> None:
@@ -112,7 +112,7 @@ class Gateway:
     def chat_complete(
         self,
         request: ChatCompletionRequest,
-        provider: str | None = None,
+        provider: Union[str, Provider] | None = None,
         api_key: str | None = None,
         guardrails_config: GuardrailsConfig | None = None,
     ) -> ChatCompletionResponse:
@@ -148,10 +148,10 @@ class Gateway:
         )
 
     @property
-    def providers(self) -> list[str]:
+    def providers(self) -> list[Provider]:
         """Get available providers.
 
         Returns:
             List of provider names.
         """
-        return get_available_providers()
+        return list_providers()

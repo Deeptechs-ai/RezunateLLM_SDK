@@ -11,13 +11,15 @@ from typing import Any
 import requests
 from pydantic import BaseModel
 
-from llm_router.models import ChatCompletionRequest, ChatCompletionResponse, ErrorInfo, Usage
+import llm_router.constants as constants
+from llm_router.models import (
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    ErrorInfo,
+    Provider,
+    Usage,
+)
 from llm_router.providers.endpoints import get_url
-
-# Retry configuration
-DEFAULT_MAX_RETRIES = 3
-DEFAULT_RETRY_DELAY = 1.0  # seconds
-RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 class BaseProvider(ABC):
@@ -31,11 +33,11 @@ class BaseProvider(ABC):
     def __init__(
         self,
         api_key: str,
-        max_retries: int = DEFAULT_MAX_RETRIES,
-        retry_delay: float = DEFAULT_RETRY_DELAY,
+        max_retries: int = constants.DEFAULT_MAX_RETRIES,
+        retry_delay: float = constants.DEFAULT_RETRY_DELAY,
         timeout: float = 60.0,
         **kwargs,
-    ):
+    ) -> None:
         self.api_key = api_key
         self.max_retries = max_retries
         self.retry_delay = retry_delay
@@ -49,7 +51,7 @@ class BaseProvider(ABC):
 
     @property
     @abstractmethod
-    def provider_name(self) -> str:
+    def provider_name(self) -> Provider:
         """Return the provider name."""
         pass
 
@@ -89,7 +91,7 @@ class BaseProvider(ABC):
 
     def _is_retryable(self, status_code: int | None) -> bool:
         """Check if the error is retryable based on status code."""
-        return status_code in RETRYABLE_STATUS_CODES
+        return status_code in constants.RETRYABLE_STATUS_CODES
 
     def chat_complete(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         """
@@ -149,7 +151,9 @@ class BaseProvider(ABC):
 
             except requests.exceptions.RequestException as e:
                 last_error = e
-                status_code = getattr(e.response, "status_code", None) if hasattr(e, "response") else None
+                status_code = (
+                    getattr(e.response, "status_code", None) if hasattr(e, "response") else None
+                )
 
                 # Check if we should retry
                 is_timeout = isinstance(e, requests.exceptions.Timeout)

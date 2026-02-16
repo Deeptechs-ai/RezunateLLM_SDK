@@ -6,15 +6,21 @@ Transforms OpenAI format <-> Google Gemini format.
 import time
 import uuid
 
+import llm_router.constants as constants
 from llm_router.models import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     Choice,
+    Provider,
     ResponseMessage,
+    Role,
     Usage,
 )
 from llm_router.providers.base import BaseProvider
-from llm_router.providers.endpoints import GOOGLE_BASE_URL, GOOGLE_GENERATE_CONTENT_ENDPOINT
+from llm_router.providers.endpoints import (
+    GOOGLE_BASE_URL,
+    GOOGLE_GENERATE_CONTENT_ENDPOINT,
+)
 from llm_router.providers.google_models import (
     GoogleContentBlock,
     GoogleGenerationConfig,
@@ -41,11 +47,14 @@ class GoogleProvider(BaseProvider):
         return GOOGLE_BASE_URL
 
     @property
-    def provider_name(self) -> str:
-        return "google"
+    def provider_name(self) -> Provider:
+        return Provider.GOOGLE
 
     def get_headers(self) -> dict[str, str]:
-        return {"Content-Type": "application/json", "x-goog-api-key": self.api_key}
+        return {
+            constants.CONTENT_TYPE_HEADER: constants.APPLICATION_JSON,
+            constants.GOOGLE_API_KEY_HEADER: self.api_key,
+        }
 
     def get_endpoint(self, model: str = None) -> str:
         return GOOGLE_GENERATE_CONTENT_ENDPOINT.format(model=model)
@@ -72,10 +81,10 @@ class GoogleProvider(BaseProvider):
             role = msg.role
             content = msg.content
 
-            if role == "system":
+            if role == Role.SYSTEM:
                 system_content = content
             else:
-                google_role = "model" if role == "assistant" else "user"
+                google_role = "model" if role == Role.ASSISTANT else "user"
                 google_messages.append(
                     GoogleMessage(role=google_role, parts=[GoogleContentBlock(text=content)])
                 )
