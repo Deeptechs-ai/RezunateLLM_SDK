@@ -1,0 +1,19 @@
+# Guardrails Configuration
+# Each rule defines a regex pattern that blocks matching content on both
+# input (user prompts) and output (LLM responses).
+
+guardrails:
+  - name: block-ssn
+    pattern: '\b\d{3}-\d{2}-\d{4}\b'
+    description: "Block Social Security Numbers"
+    action: block
+
+  - name: block-email
+    pattern: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    description: "Block email addresses"
+    action: block
+
+  - name: flag-credit-card
+    pattern: '\b(?:\d[ -]*?){13,16}\b'
+    description: "Flag potential credit card numbers"
+    action: flag

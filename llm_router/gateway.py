@@ -1,8 +1,37 @@
 """Gateway - Routes chat completion requests to providers."""
 
-from llm_router.guardrails import check_guardrails
-from llm_router.models import ChatCompletionRequest, ChatCompletionResponse, GuardrailsConfig
+import logging
+from functools import lru_cache
+from pathlib import Path
+
+from llm_router.guardrails import check_guardrails, load_guardrails
+from llm_router.models import (
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    GuardrailDirection,
+    GuardrailsConfig,
+)
 from llm_router.providers import get_provider, list_providers
+
+logger = logging.getLogger(__name__)
+
+# Default guardrails file path
+DEFAULT_GUARDRAILS_FILE = "guardrails.example.yaml"
+
+
+@lru_cache(maxsize=1)
+def _get_automatic_config() -> GuardrailsConfig | None:
+    """Load default guardrails from guardrails.example.yaml if it exists."""
+    path = Path(DEFAULT_GUARDRAILS_FILE)
+    if not path.exists():
+        return None
+    try:
+        config = load_guardrails(path)
+        logger.info("Automatically loaded guardrails from %s", path)
+        return config
+    except Exception as e:
+        logger.warning("Failed to load automatic guardrails from %s: %s", path, e)
+        return None
 
 
 def chat_complete(
@@ -16,27 +45,32 @@ def chat_complete(
     Args:
         provider: Provider name ("openai", "anthropic", "google").
         api_key: API key for the provider.
-        request: Chat completion request with model, messages, and parameters.
-        guardrails_config: Optional guardrails configuration for content filtering.
+        request: Chat completion request.
+        guardrails_config: Optional guardrails configuration.
 
     Returns:
-        Chat completion response in OpenAI format.
+        Chat completion response.
 
     Raises:
-        GuardrailsError: If input or output content matches a guardrail rule.
+        GuardrailsError: If content matches a block rule.
     """
-    if guardrails_config:
-        for message in request.messages:
-            check_guardrails(message.content, guardrails_config, direction="input")
+    # Use explicit config or try to load default
+    config = guardrails_config if guardrails_config is not None else _get_automatic_config()
+
+    if config:
+        for msg in request.messages:
+            for v in check_guardrails(msg.content, config, GuardrailDirection.INPUT):
+                logger.warning("GUARDRAIL %s [%s]: %s", v.action.name, v.direction.name, v)
 
     provider_instance = get_provider(provider, api_key, model=request.model)
     response_dict = provider_instance.chat_complete(request.model_dump(exclude_none=True))
     response = ChatCompletionResponse.model_validate(response_dict)
 
-    if guardrails_config:
+    if config:
         for choice in response.choices:
-            if choice.message.content:
-                check_guardrails(choice.message.content, guardrails_config, direction="output")
+            if content := choice.message.content:
+                for v in check_guardrails(content, config, GuardrailDirection.OUTPUT):
+                    logger.warning("GUARDRAIL %s [%s]: %s", v.action.name, v.direction.name, v)
 
     return response
 

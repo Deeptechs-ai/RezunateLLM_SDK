@@ -5,17 +5,26 @@ from pathlib import Path
 
 import yaml
 
-from llm_router.models import GuardrailsConfig
+from llm_router.models import (
+    GuardrailAction,
+    GuardrailDirection,
+    GuardrailsConfig,
+    GuardrailViolation,
+)
 
 
 class GuardrailsError(Exception):
     """Raised when content matches a guardrail rule."""
 
-    def __init__(self, rule_name: str, rule_description: str, direction: str) -> None:
+    def __init__(
+        self, rule_name: str, rule_description: str, direction: GuardrailDirection
+    ) -> None:
         self.rule_name = rule_name
         self.rule_description = rule_description
         self.direction = direction
-        super().__init__(f"Guardrail '{rule_name}' triggered on {direction}: {rule_description}")
+        super().__init__(
+            f"Guardrail '{rule_name}' triggered on {direction.name}: {rule_description}"
+        )
 
 
 def load_guardrails(config_path: str | Path) -> GuardrailsConfig:
@@ -54,8 +63,8 @@ def load_guardrails(config_path: str | Path) -> GuardrailsConfig:
 def check_guardrails(
     text: str,
     config: GuardrailsConfig,
-    direction: str,
-) -> None:
+    direction: GuardrailDirection,
+) -> list[GuardrailViolation]:
     """Check text against all guardrail rules.
 
     Args:
@@ -63,13 +72,31 @@ def check_guardrails(
         config: Guardrails configuration with rules.
         direction: Either "input" or "output", for error reporting.
 
+    Returns:
+        List of violations found.
+
     Raises:
-        GuardrailsError: If text matches any guardrail rule.
+        GuardrailsError: If any violation has action="block".
     """
+    violations = []
+
     for rule in config.guardrails:
-        if re.search(rule.pattern, text):
-            raise GuardrailsError(
+        match = re.search(rule.pattern, text)
+        if match:
+            violation = GuardrailViolation(
                 rule_name=rule.name,
                 rule_description=rule.description,
                 direction=direction,
+                action=rule.action,
+                match=match.group(0),
             )
+            violations.append(violation)
+
+            if rule.action == GuardrailAction.BLOCK:
+                raise GuardrailsError(
+                    rule_name=rule.name,
+                    rule_description=rule.description,
+                    direction=direction,
+                )
+
+    return violations
