@@ -4,9 +4,49 @@ Pydantic models for LLM Router.
 Defines request and response models following OpenAI format as the universal standard.
 """
 
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+
+class GuardrailDirection(str, Enum):
+    """Direction of the guardrail check (input or output)."""
+
+    INPUT = "input"
+    OUTPUT = "output"
+
+
+class GuardrailAction(str, Enum):
+    """Action to take when a guardrail is triggered."""
+
+    BLOCK = "block"
+    FLAG = "flag"
+
+
+class GuardrailRule(BaseModel):
+    """A single guardrail rule with a regex pattern."""
+
+    name: str
+    pattern: str
+    description: str = ""
+    action: GuardrailAction = GuardrailAction.BLOCK
+
+
+class GuardrailsConfig(BaseModel):
+    """Configuration holding a list of guardrail rules."""
+
+    guardrails: list[GuardrailRule]
+
+
+class GuardrailViolation(BaseModel):
+    """A single guardrail violation."""
+
+    rule_name: str
+    rule_description: str
+    direction: GuardrailDirection
+    action: GuardrailAction
+    match: str
 
 
 class Message(BaseModel):

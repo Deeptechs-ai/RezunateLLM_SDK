@@ -5,7 +5,14 @@ A unified Python library for chat completions across multiple AI providers
 """
 
 from llm_router.gateway import Gateway, chat_complete, get_available_providers
-from llm_router.models import ChatCompletionRequest, ChatCompletionResponse, Message
+from llm_router.guardrails import GuardrailsError, check_guardrails, load_guardrails
+from llm_router.models import (
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    GuardrailRule,
+    GuardrailsConfig,
+    Message,
+)
 from llm_router.providers import (
     PROVIDERS,
     AnthropicProvider,
@@ -20,6 +27,11 @@ __all__ = [
     "Gateway",
     "chat_complete",
     "get_available_providers",
+    "GuardrailsError",
+    "GuardrailsConfig",
+    "GuardrailRule",
+    "load_guardrails",
+    "check_guardrails",
     "ChatCompletionRequest",
     "ChatCompletionResponse",
     "Message",
