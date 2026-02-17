@@ -8,9 +8,11 @@ import uuid
 
 import llm_router.constants as constants
 from llm_router.models import (
+    FINISH_REASON_MAP,
     ChatCompletionRequest,
     ChatCompletionResponse,
     Choice,
+    FinishReason,
     Provider,
     ResponseMessage,
     Role,
@@ -138,15 +140,6 @@ class GoogleProvider(BaseProvider):
         # google_response is already validated by BaseProvider
         google_response = response
 
-        # Map Google finish reason to OpenAI
-        finish_reason_map = {
-            "STOP": "stop",
-            "MAX_TOKENS": "length",
-            "SAFETY": "content_filter",
-            "RECITATION": "content_filter",
-            "OTHER": "stop",
-        }
-
         # Extract content from candidates using Pydantic models
         choices = []
         for idx, candidate in enumerate(google_response.candidates):
@@ -155,7 +148,7 @@ class GoogleProvider(BaseProvider):
                 for part in candidate.content.parts:
                     content += part.text
 
-            finish_reason = finish_reason_map.get(candidate.finishReason or "STOP", "stop")
+            finish_reason = FINISH_REASON_MAP.get(candidate.finishReason, FinishReason.STOP)
 
             choices.append(
                 Choice(

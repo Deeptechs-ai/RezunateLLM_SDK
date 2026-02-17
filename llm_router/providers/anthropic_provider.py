@@ -8,9 +8,11 @@ import uuid
 
 import llm_router.constants as constants
 from llm_router.models import (
+    FINISH_REASON_MAP,
     ChatCompletionRequest,
     ChatCompletionResponse,
     Choice,
+    FinishReason,
     Provider,
     ResponseMessage,
     Role,
@@ -110,13 +112,7 @@ class AnthropicProvider(BaseProvider):
                 content += block.text
 
         # Map Anthropic stop_reason to OpenAI finish_reason
-        stop_reason_map = {
-            "end_turn": "stop",
-            "stop_sequence": "stop",
-            "max_tokens": "length",
-            "tool_use": "tool_calls",
-        }
-        finish_reason = stop_reason_map.get(anthropic_response.stop_reason or "end_turn", "stop")
+        finish_reason = FINISH_REASON_MAP.get(anthropic_response.stop_reason, FinishReason.STOP)
 
         # Build OpenAI format response using Pydantic models
         input_tokens = anthropic_response.usage.input_tokens
