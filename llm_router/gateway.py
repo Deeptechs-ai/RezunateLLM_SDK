@@ -1,11 +1,11 @@
 """Gateway - Routes chat completion requests to providers."""
 
 import logging
+import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Union
 
-import llm_router.constants as constants
+from dotenv import load_dotenv
 
 from llm_router.guardrails import check_guardrails, load_guardrails
 from llm_router.models import (
@@ -17,12 +17,22 @@ from llm_router.models import (
 )
 from llm_router.providers import get_provider, list_providers
 
+# Load environment variables
+load_dotenv()
+
 logger = logging.getLogger(__name__)
+
+
+# Guardrails file path
+GUARDRAILS_FILE = os.getenv("GUARDRAILS_FILE_PATH")
+
 
 @lru_cache(maxsize=1)
 def _get_automatic_config() -> GuardrailsConfig | None:
     """Load default guardrails from guardrails.example.yaml if it exists."""
-    path = Path(constants.DEFAULT_GUARDRAILS_FILE)
+    if not GUARDRAILS_FILE:
+        return None
+    path = Path(GUARDRAILS_FILE)
     if not path.exists():
         return None
     try:
@@ -35,7 +45,7 @@ def _get_automatic_config() -> GuardrailsConfig | None:
 
 
 def chat_complete(
-    provider: Union[str, Provider],
+    provider: str | Provider,
     api_key: str,
     request: ChatCompletionRequest,
     guardrails_config: GuardrailsConfig | None = None,
@@ -112,7 +122,7 @@ class Gateway:
     def chat_complete(
         self,
         request: ChatCompletionRequest,
-        provider: Union[str, Provider] | None = None,
+        provider: str | Provider | None = None,
         api_key: str | None = None,
         guardrails_config: GuardrailsConfig | None = None,
     ) -> ChatCompletionResponse:
