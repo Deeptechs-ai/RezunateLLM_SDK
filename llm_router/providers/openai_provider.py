@@ -1,39 +1,65 @@
 """
 OpenAI Provider.
-No transformation needed - OpenAI format is the standard.
+Uses official OpenAI SDK.
 """
 
 from typing import Any
 
-from llm_router.models import ChatCompletionRequest
+from openai import OpenAI
+import llm_router.constants as constants
+
+from llm_router.models import ChatCompletionRequest, ChatCompletionResponse, Provider
 from llm_router.providers.base import BaseProvider
+from llm_router.providers.endpoints import OPENAI_BASE_URL, OPENAI_CHAT_ENDPOINT
 
 
 class OpenAIProvider(BaseProvider):
     """
-    OpenAI Provider implementation.
-    Since OpenAI format is our standard, no transformation is needed.
+    OpenAI Provider implementation using the official SDK.
     """
+
+    response_model = ChatCompletionResponse
+
+    def __init__(self, api_key: str, **kwargs):
+        super().__init__(api_key, **kwargs)
+        self.client = OpenAI(
+            api_key=self.api_key,
+            max_retries=self.max_retries,
+        )
 
     @property
     def base_url(self) -> str:
-        return "https://api.openai.com/v1"
+        return OPENAI_BASE_URL
 
     @property
-    def provider_name(self) -> str:
-        return "openai"
+    def provider_name(self) -> Provider:
+        return Provider.OPENAI
 
     def get_headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        """Not used when using SDK, but kept for interface consistency."""
 
-    def get_endpoint(self, model: str = None) -> str:
-        return "/chat/completions"
+        return {
+            constants.AUTHORIZATION_HEADER: f"Bearer {self.api_key}",
+            constants.CONTENT_TYPE_HEADER: constants.APPLICATION_JSON,
+        }
 
-    def transform_request(self, request: dict[str, Any]) -> dict[str, Any]:
+    def get_endpoint(self, model: str | None = None) -> str:
+        """Not used when using SDK."""
+        return OPENAI_CHAT_ENDPOINT
+
+    def transform_request(self, request: ChatCompletionRequest) -> ChatCompletionRequest:
         """Validate and pass through - already in OpenAI format."""
-        openai_request = ChatCompletionRequest.model_validate(request)
-        return openai_request.model_dump(exclude_none=True)
+        return request
 
-    def transform_response(self, response: dict[str, Any], model: str = None) -> dict[str, Any]:
-        """No transformation needed - already in OpenAI format."""
+    def _execute_request(
+        self, provider_request: ChatCompletionRequest, model: str | None = None
+    ) -> Any:
+        """Execute the request using the OpenAI SDK."""
+        params = provider_request.model_dump(exclude_none=True)
+        return self.client.chat.completions.create(**params, timeout=self.timeout)
+
+    def transform_response(self, response: Any, model: str | None = None) -> ChatCompletionResponse:
+        """Convert SDK response to our internal model."""
+        if hasattr(response, "model_dump"):
+            return ChatCompletionResponse.model_validate(response.model_dump())
         return response

@@ -13,7 +13,7 @@ git clone https://github.com/Deeptechs-ai/LLM-Router
 uv sync
 ```
 
-## Usage
+## Terminal Usage
 
 ```python
 from gateway import chat_complete, ChatCompletionRequest, Message
@@ -32,3 +32,29 @@ response = chat_complete(
 
 print(response.choices[0].message.content)
 ```
+
+## Guardrails
+
+### Regex Guardrails
+
+Regex guardrails let you block or flag sensitive content (SSNs, emails, credit cards, etc.) in both input and output messages using pattern matching.
+
+#### Setup
+
+1. Create a YAML config file (see `guardrails.example.yaml`):
+
+Each rule requires:
+- `name`: Identifier for the rule
+- `pattern`: Regex pattern to match
+- `description`: Human-readable description
+- `action`: `block` (raises `GuardrailsError`) or `flag` (logs a warning but allows the request)
+
+2. Set the environment variable to enable automatic loading:
+
+```bash
+GUARDRAILS_FILE_PATH=path-to-guardrails-config-yaml-file
+```
+
+#### Usage
+
+Guardrails are applied automatically when `GUARDRAILS_FILE_PATH` is set. Both user input and LLM output are checked against all rules.

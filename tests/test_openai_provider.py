@@ -4,6 +4,7 @@ Tests for OpenAI Provider.
 
 import responses
 
+from llm_router.models import ChatCompletionRequest, ChatCompletionResponse
 from llm_router.providers.openai_provider import OpenAIProvider
 
 
@@ -40,15 +41,16 @@ class TestOpenAITransformRequest:
     def test_request_passthrough(self, mock_api_key, openai_request):
         """Test request is passed through unchanged."""
         provider = OpenAIProvider(api_key=mock_api_key)
+        req_obj = ChatCompletionRequest.model_validate(openai_request)
 
-        result = provider.transform_request(openai_request)
+        result = provider.transform_request(req_obj)
 
-        assert result == openai_request
+        assert result == req_obj
 
     def test_preserves_all_fields(self, mock_api_key):
         """Test all request fields are preserved."""
         provider = OpenAIProvider(api_key=mock_api_key)
-        request = {
+        request_dict = {
             "model": "gpt-4",
             "messages": [{"role": "user", "content": "test"}],
             "temperature": 0.5,
@@ -58,10 +60,11 @@ class TestOpenAITransformRequest:
             "presence_penalty": 0.5,
             "stop": ["\n"],
         }
+        req_obj = ChatCompletionRequest.model_validate(request_dict)
 
-        result = provider.transform_request(request)
+        result = provider.transform_request(req_obj)
 
-        assert result == request
+        assert result == req_obj
 
 
 class TestOpenAITransformResponse:
@@ -70,10 +73,12 @@ class TestOpenAITransformResponse:
     def test_response_passthrough(self, mock_api_key, openai_response):
         """Test response is passed through unchanged."""
         provider = OpenAIProvider(api_key=mock_api_key)
+        resp_obj = ChatCompletionResponse.model_validate(openai_response)
 
-        result = provider.transform_response(openai_response)
+        result = provider.transform_response(resp_obj)
 
-        assert result == openai_response
+        assert isinstance(result, ChatCompletionResponse)
+        assert result.id == openai_response["id"]
 
 
 class TestOpenAIIntegration:
@@ -90,12 +95,13 @@ class TestOpenAIIntegration:
         )
 
         provider = OpenAIProvider(api_key=mock_api_key)
-        result = provider.chat_complete(openai_request)
+        req_obj = ChatCompletionRequest.model_validate(openai_request)
+        result = provider.chat_complete(req_obj)
 
-        assert result["id"] == openai_response["id"]
-        assert result["choices"][0]["message"]["content"] == "Hello! How can I assist you today?"
-        assert result["provider"] == "openai"
-        assert result["usage"]["total_tokens"] == 30
+        assert result.id == openai_response["id"]
+        assert result.choices[0].message.content == "Hello! How can I assist you today?"
+        assert result.provider == "openai"
+        assert result.usage.total_tokens == 30
 
     @responses.activate
     def test_request_headers_sent(self, mock_api_key, openai_request, openai_response):
@@ -108,7 +114,8 @@ class TestOpenAIIntegration:
         )
 
         provider = OpenAIProvider(api_key=mock_api_key)
-        provider.chat_complete(openai_request)
+        req_obj = ChatCompletionRequest.model_validate(openai_request)
+        provider.chat_complete(req_obj)
 
         assert len(responses.calls) == 1
         request_headers = responses.calls[0].request.headers
@@ -132,7 +139,8 @@ class TestOpenAIIntegration:
         )
 
         provider = OpenAIProvider(api_key=mock_api_key)
-        result = provider.chat_complete(openai_request)
+        req_obj = ChatCompletionRequest.model_validate(openai_request)
+        result = provider.chat_complete(req_obj)
 
-        assert "error" in result
-        assert result["provider"] == "openai"
+        assert result.error is not None
+        assert result.provider == "openai"

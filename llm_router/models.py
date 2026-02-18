@@ -5,9 +5,24 @@ Defines request and response models following OpenAI format as the universal sta
 """
 
 from enum import Enum
-from typing import Literal
 
 from pydantic import BaseModel, Field
+
+
+class Provider(str, Enum):
+    """Available LLM providers."""
+
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    GOOGLE = "google"
+
+
+class Role(str, Enum):
+    """Message roles."""
+
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
 
 
 class GuardrailDirection(str, Enum):
@@ -52,7 +67,7 @@ class GuardrailViolation(BaseModel):
 class Message(BaseModel):
     """A chat message."""
 
-    role: Literal["system", "user", "assistant"]
+    role: Role
     content: str
 
 
@@ -82,10 +97,44 @@ class Usage(BaseModel):
     total_tokens: int = 0
 
 
+class FinishReason(str, Enum):
+    """Reason why a completion finished."""
+
+    STOP = "stop"
+    LENGTH = "length"
+    CONTENT_FILTER = "content_filter"
+    TOOL_CALLS = "tool_calls"
+
+
+# Centralized mapping for all provider-specific finish reasons
+FINISH_REASON_MAP: dict[str, FinishReason] = {
+    # OpenAI (passthrough)
+    "stop": FinishReason.STOP,
+    "length": FinishReason.LENGTH,
+    "content_filter": FinishReason.CONTENT_FILTER,
+    "tool_calls": FinishReason.TOOL_CALLS,
+    # Google Gemini
+    "STOP": FinishReason.STOP,
+    "MAX_TOKENS": FinishReason.LENGTH,
+    "SAFETY": FinishReason.CONTENT_FILTER,
+    "RECITATION": FinishReason.CONTENT_FILTER,
+    "BLOCKLIST": FinishReason.CONTENT_FILTER,
+    "PROHIBITED_CONTENT": FinishReason.CONTENT_FILTER,
+    "SPII": FinishReason.CONTENT_FILTER,
+    "OTHER": FinishReason.STOP,
+    "MALFORMED_FUNCTION_CALL": FinishReason.STOP,
+    # Anthropic
+    "end_turn": FinishReason.STOP,
+    "stop_sequence": FinishReason.STOP,
+    "max_tokens": FinishReason.LENGTH,
+    "tool_use": FinishReason.TOOL_CALLS,
+}
+
+
 class ResponseMessage(BaseModel):
     """Message in a chat completion response."""
 
-    role: Literal["assistant"] = "assistant"
+    role: Role = Role.ASSISTANT
     content: str | None = None
 
 
@@ -94,7 +143,7 @@ class Choice(BaseModel):
 
     index: int = 0
     message: ResponseMessage
-    finish_reason: str | None = None
+    finish_reason: FinishReason | None = None
 
 
 class ErrorInfo(BaseModel):
@@ -110,10 +159,10 @@ class ChatCompletionResponse(BaseModel):
     """Response model for chat completion in OpenAI format."""
 
     id: str | None = None
-    object: Literal["chat.completion"] = "chat.completion"
+    object: str = "chat.completion"
     created: int = 0
-    model: str
+    model: str | None = None
     choices: list[Choice] = Field(default_factory=list)
     usage: Usage = Field(default_factory=Usage)
-    provider: str
+    provider: Provider | None = None
     error: ErrorInfo | None = None

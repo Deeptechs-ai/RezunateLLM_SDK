@@ -4,7 +4,9 @@ Tests for BaseProvider class.
 
 import pytest
 import responses
+from pydantic import BaseModel
 
+from llm_router.models import ChatCompletionRequest, ChatCompletionResponse
 from llm_router.providers.base import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_RETRY_DELAY,
@@ -14,6 +16,8 @@ from llm_router.providers.base import (
 
 class ConcreteProvider(BaseProvider):
     """Concrete implementation of BaseProvider for testing."""
+
+    response_model = ChatCompletionResponse
 
     @property
     def base_url(self) -> str:
@@ -32,11 +36,13 @@ class ConcreteProvider(BaseProvider):
     def get_endpoint(self, model: str = None):
         return "/chat/completions"
 
-    def transform_request(self, request):
+    def transform_request(self, request: ChatCompletionRequest) -> BaseModel:
         return request
 
-    def transform_response(self, response, model: str = None):
-        return response
+    def transform_response(self, response: BaseModel, model: str = None) -> ChatCompletionResponse:
+        if isinstance(response, ChatCompletionResponse):
+            return response
+        return ChatCompletionResponse.model_validate(response.model_dump())
 
 
 class TestBaseProviderInit:
@@ -128,12 +134,13 @@ class TestChatComplete:
         )
 
         provider = ConcreteProvider(api_key=mock_api_key)
-        request = {"model": "test-model", "messages": [{"role": "user", "content": "Hello"}]}
+        request_dict = {"model": "test-model", "messages": [{"role": "user", "content": "Hello"}]}
+        req_obj = ChatCompletionRequest.model_validate(request_dict)
 
-        result = provider.chat_complete(request)
+        result = provider.chat_complete(req_obj)
 
-        assert result["id"] == openai_response["id"]
-        assert result["provider"] == "test_provider"
+        assert result.id == openai_response["id"]
+        assert result.provider == "test_provider"
         assert len(responses.calls) == 1
 
     @responses.activate
@@ -154,12 +161,13 @@ class TestChatComplete:
         )
 
         provider = ConcreteProvider(api_key=mock_api_key, retry_delay=0.01)
-        request = {"model": "test-model", "messages": [{"role": "user", "content": "Hello"}]}
+        request_dict = {"model": "test-model", "messages": [{"role": "user", "content": "Hello"}]}
+        req_obj = ChatCompletionRequest.model_validate(request_dict)
 
-        result = provider.chat_complete(request)
+        result = provider.chat_complete(req_obj)
 
-        assert "error" not in result
-        assert result["provider"] == "test_provider"
+        assert result.error is None
+        assert result.provider == "test_provider"
         assert len(responses.calls) == 2
 
     @responses.activate
@@ -179,11 +187,12 @@ class TestChatComplete:
         )
 
         provider = ConcreteProvider(api_key=mock_api_key, retry_delay=0.01)
-        request = {"model": "test-model", "messages": [{"role": "user", "content": "Hello"}]}
+        request_dict = {"model": "test-model", "messages": [{"role": "user", "content": "Hello"}]}
+        req_obj = ChatCompletionRequest.model_validate(request_dict)
 
-        result = provider.chat_complete(request)
+        result = provider.chat_complete(req_obj)
 
-        assert "error" not in result
+        assert result.error is None
         assert len(responses.calls) == 2
 
     @responses.activate
@@ -197,11 +206,12 @@ class TestChatComplete:
         )
 
         provider = ConcreteProvider(api_key=mock_api_key, retry_delay=0.01)
-        request = {"model": "test-model", "messages": [{"role": "user", "content": "Hello"}]}
+        request_dict = {"model": "test-model", "messages": [{"role": "user", "content": "Hello"}]}
+        req_obj = ChatCompletionRequest.model_validate(request_dict)
 
-        result = provider.chat_complete(request)
+        result = provider.chat_complete(req_obj)
 
-        assert "error" in result
+        assert result.error is not None
         assert len(responses.calls) == 1
 
     @responses.activate
@@ -217,13 +227,14 @@ class TestChatComplete:
             )
 
         provider = ConcreteProvider(api_key=mock_api_key, max_retries=3, retry_delay=0.01)
-        request = {"model": "test-model", "messages": [{"role": "user", "content": "Hello"}]}
+        request_dict = {"model": "test-model", "messages": [{"role": "user", "content": "Hello"}]}
+        req_obj = ChatCompletionRequest.model_validate(request_dict)
 
-        result = provider.chat_complete(request)
+        result = provider.chat_complete(req_obj)
 
-        assert "error" in result
-        assert result["error"]["retries_attempted"] == 3
-        assert result["provider"] == "test_provider"
+        assert result.error is not None
+        assert result.error.retries_attempted == 3
+        assert result.provider == "test_provider"
         assert len(responses.calls) == 4
 
     @responses.activate
@@ -232,14 +243,15 @@ class TestChatComplete:
         responses.add(
             responses.POST,
             "https://api.test.com/v1/chat/completions",
-            json={"id": "test"},
+            json={"id": "test", "object": "chat.completion", "choices": [], "usage": {}},
             status=200,
         )
 
         provider = ConcreteProvider(api_key=mock_api_key, timeout=30.0)
-        request = {"model": "test-model", "messages": [{"role": "user", "content": "Hello"}]}
+        request_dict = {"model": "test-model", "messages": [{"role": "user", "content": "Hello"}]}
+        req_obj = ChatCompletionRequest.model_validate(request_dict)
 
-        provider.chat_complete(request)
+        provider.chat_complete(req_obj)
 
         # Check that the request was made with the correct timeout
         assert len(responses.calls) == 1

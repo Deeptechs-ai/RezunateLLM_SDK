@@ -5,12 +5,24 @@ Transforms OpenAI format <-> Google Gemini format.
 
 import time
 import uuid
-from typing import Any
 
-from pydantic import ValidationError
-
-from llm_router.models import ChatCompletionResponse, Choice, ResponseMessage, Usage
+import llm_router.constants as constants
+from llm_router.models import (
+    FINISH_REASON_MAP,
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    Choice,
+    FinishReason,
+    Provider,
+    ResponseMessage,
+    Role,
+    Usage,
+)
 from llm_router.providers.base import BaseProvider
+from llm_router.providers.endpoints import (
+    GOOGLE_BASE_URL,
+    GOOGLE_GENERATE_CONTENT_ENDPOINT,
+)
 from llm_router.providers.google_models import (
     GoogleContentBlock,
     GoogleGenerationConfig,
@@ -27,24 +39,29 @@ class GoogleProvider(BaseProvider):
     Handles transformation between OpenAI and Google Gemini formats.
     """
 
+    response_model = GoogleResponse
+
     def __init__(self, api_key: str, **kwargs):
         super().__init__(api_key, **kwargs)
 
     @property
     def base_url(self) -> str:
-        return "https://generativelanguage.googleapis.com/v1beta"
+        return GOOGLE_BASE_URL
 
     @property
-    def provider_name(self) -> str:
-        return "google"
+    def provider_name(self) -> Provider:
+        return Provider.GOOGLE
 
     def get_headers(self) -> dict[str, str]:
-        return {"Content-Type": "application/json", "x-goog-api-key": self.api_key}
+        return {
+            constants.CONTENT_TYPE_HEADER: constants.APPLICATION_JSON,
+            constants.GOOGLE_API_KEY_HEADER: self.api_key,
+        }
 
     def get_endpoint(self, model: str = None) -> str:
-        return f"/models/{model}:generateContent"
+        return GOOGLE_GENERATE_CONTENT_ENDPOINT.format(model=model)
 
-    def transform_request(self, request: dict[str, Any]) -> dict[str, Any]:
+    def transform_request(self, request: ChatCompletionRequest) -> GoogleRequest:
         """Transform OpenAI format request to Google Gemini format.
 
         Converts messages to Google's contents format, maps 'assistant' role to 'model',
@@ -59,18 +76,17 @@ class GoogleProvider(BaseProvider):
             and generationConfig.
         """
         # Extract system message and regular messages
-        messages = request.get("messages", [])
         system_content = None
         google_messages = []
 
-        for msg in messages:
-            role = msg.get("role")
-            content = msg.get("content", "")
+        for msg in request.messages:
+            role = msg.role
+            content = msg.content
 
-            if role == "system":
+            if role == Role.SYSTEM:
                 system_content = content
             else:
-                google_role = "model" if role == "assistant" else "user"
+                google_role = "model" if role == Role.ASSISTANT else "user"
                 google_messages.append(
                     GoogleMessage(role=google_role, parts=[GoogleContentBlock(text=content)])
                 )
@@ -84,11 +100,15 @@ class GoogleProvider(BaseProvider):
 
         # Build generation config if any params present
         generation_config = None
-        if any(k in request for k in ["temperature", "max_tokens", "top_k"]):
+        if (
+            request.temperature is not None
+            or request.max_tokens is not None
+            or getattr(request, "top_k", None) is not None
+        ):
             generation_config = GoogleGenerationConfig(
-                temperature=request.get("temperature"),
-                maxOutputTokens=request.get("max_tokens"),
-                topK=request.get("top_k"),
+                temperature=request.temperature,
+                maxOutputTokens=request.max_tokens,
+                topK=getattr(request, "top_k", None),
             )
 
         # Build Google request using pydantic model
@@ -96,39 +116,29 @@ class GoogleProvider(BaseProvider):
             contents=google_messages,
             systemInstruction=system_instruction,
             generationConfig=generation_config,
-            safetySettings=request.get("safety_settings"),
-            tools=request.get("tools"),
+            safetySettings=getattr(request, "safety_settings", None),
+            tools=getattr(request, "tools", None),
         )
 
-        return google_request.model_dump(exclude_none=True)
+        return google_request
 
-    def transform_response(self, response: dict[str, Any], model: str = None) -> dict[str, Any]:
+    def transform_response(
+        self, response: GoogleResponse, model: str | None = None
+    ) -> ChatCompletionResponse:
         """Transform Google Gemini format response to OpenAI format.
 
         Converts candidates to choices, maps 'model' role to 'assistant',
         translates finish reasons, and normalizes usage metadata.
 
         Args:
-            response: Google Gemini response containing candidates and usageMetadata.
+            response: Google Gemini response Pydantic model.
             model: Model name to include in the response.
 
         Returns:
             OpenAI-formatted response with id, object, created, model, choices, and usage.
         """
-        # Parse Google response using pydantic model with error handling
-        try:
-            google_response = GoogleResponse.model_validate(response)
-        except ValidationError as e:
-            raise ValueError(f"Invalid Google response: {e}") from e
-
-        # Map Google finish reason to OpenAI
-        finish_reason_map = {
-            "STOP": "stop",
-            "MAX_TOKENS": "length",
-            "SAFETY": "content_filter",
-            "RECITATION": "content_filter",
-            "OTHER": "stop",
-        }
+        # google_response is already validated by BaseProvider
+        google_response = response
 
         # Extract content from candidates using Pydantic models
         choices = []
@@ -138,7 +148,7 @@ class GoogleProvider(BaseProvider):
                 for part in candidate.content.parts:
                     content += part.text
 
-            finish_reason = finish_reason_map.get(candidate.finishReason or "STOP", "stop")
+            finish_reason = FINISH_REASON_MAP.get(candidate.finishReason, FinishReason.STOP)
 
             choices.append(
                 Choice(
@@ -167,4 +177,4 @@ class GoogleProvider(BaseProvider):
             provider=self.provider_name,
         )
 
-        return openai_response.model_dump(exclude_none=True)
+        return openai_response

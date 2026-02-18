@@ -5,17 +5,30 @@ Transforms OpenAI format to Anthropic format
 
 import time
 import uuid
-from typing import Any
 
-from pydantic import ValidationError
-
-from llm_router.models import ChatCompletionResponse, Choice, ResponseMessage, Usage
+import llm_router.constants as constants
+from llm_router.models import (
+    FINISH_REASON_MAP,
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    Choice,
+    FinishReason,
+    Provider,
+    ResponseMessage,
+    Role,
+    Usage,
+)
 from llm_router.providers.anthropic_models import (
     AnthropicMessage,
     AnthropicRequest,
     AnthropicResponse,
 )
 from llm_router.providers.base import BaseProvider
+from llm_router.providers.endpoints import (
+    ANTHROPIC_BASE_URL,
+    ANTHROPIC_DEFAULT_VERSION,
+    ANTHROPIC_MESSAGES_ENDPOINT,
+)
 
 
 class AnthropicProvider(BaseProvider):
@@ -24,25 +37,27 @@ class AnthropicProvider(BaseProvider):
     Handles transformation between OpenAI and Anthropic formats.
     """
 
-    @property
-    def base_url(self) -> str:
-        return "https://api.anthropic.com/v1"
+    response_model = AnthropicResponse
 
     @property
-    def provider_name(self) -> str:
-        return "anthropic"
+    def base_url(self) -> str:
+        return ANTHROPIC_BASE_URL
+
+    @property
+    def provider_name(self) -> Provider:
+        return Provider.ANTHROPIC
 
     def get_headers(self) -> dict[str, str]:
         return {
-            "x-api-key": self.api_key,
-            "Content-Type": "application/json",
-            "anthropic-version": "2023-06-01",
+            constants.API_KEY_HEADER: self.api_key,
+            constants.CONTENT_TYPE_HEADER: constants.APPLICATION_JSON,
+            constants.ANTHROPIC_VERSION_HEADER: ANTHROPIC_DEFAULT_VERSION,
         }
 
     def get_endpoint(self, model: str | None = None) -> str:
-        return "/messages"
+        return ANTHROPIC_MESSAGES_ENDPOINT
 
-    def transform_request(self, request: dict[str, Any]) -> dict[str, Any]:
+    def transform_request(self, request: ChatCompletionRequest) -> AnthropicRequest:
         """
         Transform OpenAI format request to Anthropic format.
 
@@ -53,70 +68,42 @@ class AnthropicProvider(BaseProvider):
         - Anthropic: max_tokens required
         """
         # Extract system message and regular messages
-        messages = request.get("messages", [])
         system_content = None
         anthropic_messages = []
 
-        for msg in messages:
-            role = msg.get("role")
-            content = msg.get("content", "")
+        for msg in request.messages:
+            role = msg.role
+            content = msg.content
 
             # Anthropic handles system separately
-            if role == "system":
+            if role == Role.SYSTEM:
                 system_content = content
             else:
                 # Map OpenAI roles to Anthropic roles
-                anthropic_role = "assistant" if role == "assistant" else "user"
+                anthropic_role = "assistant" if role == Role.ASSISTANT else "user"
                 anthropic_messages.append(AnthropicMessage(role=anthropic_role, content=content))
 
         # Build Anthropic request using pydantic model
         anthropic_request = AnthropicRequest(
-            model=request.get("model"),
-            max_tokens=request.get("max_tokens", 1024),
+            model=request.model,
+            max_tokens=request.max_tokens or 1024,
             messages=anthropic_messages,
             system=system_content,
-            temperature=request.get("temperature"),
-            top_k=request.get("top_k"),
-            metadata=request.get("metadata"),
+            temperature=request.temperature,
+            top_k=getattr(request, "top_k", None),  # top_k is extra field in ChatCompletionRequest
+            metadata=getattr(request, "metadata", None),
         )
 
-        return anthropic_request.model_dump(exclude_none=True)
+        return anthropic_request
 
     def transform_response(
-        self, response: dict[str, Any], model: str | None = None
-    ) -> dict[str, Any]:
+        self, response: AnthropicResponse, model: str | None = None
+    ) -> ChatCompletionResponse:
         """
         Transform Anthropic format response to OpenAI format.
-
-        Anthropic response:
-        {
-            "id": "msg_...",
-            "type": "message",
-            "role": "assistant",
-            "content": [{"type": "text", "text": "..."}],
-            "stop_reason": "end_turn",
-            "usage": {"input_tokens": X, "output_tokens": Y}
-        }
-
-        OpenAI format:
-        {
-            "id": "chatcmpl-...",
-            "object": "chat.completion",
-            "created": timestamp,
-            "model": "...",
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": "..."},
-                "finish_reason": "stop"
-            }],
-            "usage": {"prompt_tokens": X, "completion_tokens": Y, "total_tokens": Z}
-        }
         """
-        # Parse Anthropic response using pydantic model with error handling
-        try:
-            anthropic_response = AnthropicResponse.model_validate(response)
-        except ValidationError as e:
-            raise ValueError(f"Invalid Anthropic response: {e}") from e
+        # anthropic_response is already validated by BaseProvider
+        anthropic_response = response
 
         # Extract content from Anthropic response
         content = ""
@@ -125,13 +112,7 @@ class AnthropicProvider(BaseProvider):
                 content += block.text
 
         # Map Anthropic stop_reason to OpenAI finish_reason
-        stop_reason_map = {
-            "end_turn": "stop",
-            "stop_sequence": "stop",
-            "max_tokens": "length",
-            "tool_use": "tool_calls",
-        }
-        finish_reason = stop_reason_map.get(anthropic_response.stop_reason or "end_turn", "stop")
+        finish_reason = FINISH_REASON_MAP.get(anthropic_response.stop_reason, FinishReason.STOP)
 
         # Build OpenAI format response using Pydantic models
         input_tokens = anthropic_response.usage.input_tokens
@@ -140,7 +121,7 @@ class AnthropicProvider(BaseProvider):
         openai_response = ChatCompletionResponse(
             id=anthropic_response.id or f"chatcmpl-{uuid.uuid4().hex[:8]}",
             created=int(time.time()),
-            model=anthropic_response.model,
+            model=anthropic_response.model or model,
             choices=[
                 Choice(
                     index=0,
@@ -156,4 +137,4 @@ class AnthropicProvider(BaseProvider):
             provider=self.provider_name,
         )
 
-        return openai_response.model_dump(exclude_none=True)
+        return openai_response
