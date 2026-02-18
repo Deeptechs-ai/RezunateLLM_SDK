@@ -4,7 +4,6 @@ Each provider has its own factory class for creating instances.
 """
 
 from abc import ABC, abstractmethod
-from typing import Union
 
 from llm_router.models import Provider
 from llm_router.providers.base import BaseProvider
@@ -84,7 +83,7 @@ FACTORY_REGISTRY: dict[Provider, ProviderFactory] = {
 }
 
 
-def get_factory(provider_name: Union[str, Provider]) -> ProviderFactory:
+def get_factory(provider_name: str | Provider) -> ProviderFactory:
     """
     Get a factory instance by provider name.
 
@@ -101,14 +100,11 @@ def get_factory(provider_name: Union[str, Provider]) -> ProviderFactory:
         try:
             provider_name = Provider(provider_name.lower())
         except ValueError:
-            available = ", ".join(p.value for p in FACTORY_REGISTRY.keys())
             raise ValueError(
-                f"Unknown provider: '{provider_name}'. Available providers: {available}"
-            )
+                f"Unknown provider: '{provider_name}'. "
+                f"Available providers: {', '.join(p.value for p in Provider)}"
+            ) from None
 
-    if provider_name not in FACTORY_REGISTRY:
-        available = ", ".join(p.value for p in FACTORY_REGISTRY.keys())
-        raise ValueError(f"Unknown provider: '{provider_name}'. Available providers: {available}")
     return FACTORY_REGISTRY[provider_name]
 
 

@@ -4,8 +4,6 @@ Provider Registry.
 Uses Factory Method Pattern for creating provider instances.
 """
 
-from typing import Union
-
 from llm_router.models import Provider
 from llm_router.providers.anthropic_provider import AnthropicProvider
 from llm_router.providers.base import BaseProvider
@@ -33,19 +31,12 @@ __all__ = [
     "ProviderFactory",
     "get_factory",
     "register_factory",
-    "PROVIDERS",
     "get_provider",
     "list_providers",
 ]
 
-PROVIDERS: dict[Provider, type[BaseProvider]] = {
-    Provider.OPENAI: OpenAIProvider,
-    Provider.ANTHROPIC: AnthropicProvider,
-    Provider.GOOGLE: GoogleProvider,
-}
 
-
-def get_provider(provider_name: Union[str, Provider], api_key: str, **kwargs) -> BaseProvider:
+def get_provider(provider_name: str | Provider, api_key: str, **kwargs) -> BaseProvider:
     """
     Get a provider instance by name using Factory Method Pattern.
 

@@ -14,7 +14,6 @@ from llm_router.models import (
     Message,
 )
 from llm_router.providers import (
-    PROVIDERS,
     AnthropicProvider,
     BaseProvider,
     GoogleProvider,
@@ -35,7 +34,6 @@ __all__ = [
     "ChatCompletionRequest",
     "ChatCompletionResponse",
     "Message",
-    "PROVIDERS",
     "AnthropicProvider",
     "BaseProvider",
     "GoogleProvider",
