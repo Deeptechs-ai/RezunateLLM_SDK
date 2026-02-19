@@ -7,6 +7,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from llm_router.api import get_prompt as _api_get_prompt
+from llm_router.client import RouterClient
 from llm_router.guardrails import check_guardrails, load_guardrails
 from llm_router.models import (
     ChatCompletionRequest,
@@ -15,6 +17,7 @@ from llm_router.models import (
     GuardrailsConfig,
     Provider,
 )
+from llm_router.prompts import render_prompt
 from llm_router.providers import get_provider, list_providers
 
 # Load environment variables
@@ -107,17 +110,31 @@ class Gateway:
         default_provider: Provider | str | None = None,
         default_api_key: str | None = None,
         guardrails_config: GuardrailsConfig | None = None,
+        router_api_key: str | None = None,
     ) -> None:
         """Initialize Gateway.
 
         Args:
             default_provider: Default provider to use.
-            default_api_key: Default API key to use.
+            default_api_key: Default API key to use for the LLM provider.
             guardrails_config: Optional guardrails configuration for content filtering.
+            router_api_key: API key for the LLM-Router API (falls back to ROUTER_API_KEY env var).
         """
         self.default_provider = default_provider
         self.default_api_key = default_api_key
         self.guardrails_config = guardrails_config
+        self._router_api_key = router_api_key
+        self._client: RouterClient | None = None
+
+    @property
+    def client(self) -> RouterClient:
+        """Lazily-created RouterClient for the LLM-Router API."""
+        if self._client is None:
+            kwargs: dict = {}
+            if self._router_api_key:
+                kwargs["api_key"] = self._router_api_key
+            self._client = RouterClient(**kwargs)
+        return self._client
 
     def chat_complete(
         self,
@@ -156,6 +173,26 @@ class Gateway:
             request=request,
             guardrails_config=resolved_guardrails,
         )
+
+    def get_prompt(
+        self,
+        slug_id: str,
+        variables: dict[str, str] | None = None,
+    ) -> str:
+        """Fetch a prompt from the LLM-Router API and render it.
+
+        Args:
+            slug_id: The prompt's slug identifier.
+            variables: Optional mapping of template variable names to values.
+
+        Returns:
+            The rendered prompt string.
+
+        Raises:
+            RouterAPIError: If api_key is not configured (and not in env).
+        """
+        prompt = _api_get_prompt(self.client, slug_id)
+        return render_prompt(prompt.content, variables)
 
     @property
     def providers(self) -> list[Provider]:
