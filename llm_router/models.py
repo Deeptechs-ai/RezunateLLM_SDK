@@ -4,6 +4,7 @@ Pydantic models for LLM Router.
 Defines request and response models following OpenAI format as the universal standard.
 """
 
+from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -166,3 +167,15 @@ class ChatCompletionResponse(BaseModel):
     usage: Usage = Field(default_factory=Usage)
     provider: Provider | None = None
     error: ErrorInfo | None = None
+
+
+class PromptResponse(BaseModel):
+    """Prompt returned by the LLM-Router API."""
+
+    slug_id: str
+    name: str
+    content: str
+    description: str | None = None
+    input_variables: list[str] | None = None
+    created_at: datetime
+    updated_at: datetime
