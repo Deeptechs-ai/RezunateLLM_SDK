@@ -12,3 +12,6 @@ ANTHROPIC_VERSION_HEADER = "anthropic-version"
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY = 1.0  # seconds
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
+# Router API
+ROUTER_BASE_URL = "https://rezunatellm.com"
