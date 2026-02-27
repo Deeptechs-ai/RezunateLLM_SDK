@@ -178,12 +178,14 @@ class Gateway:
         self,
         slug_id: str,
         variables: dict[str, str] | None = None,
+        version: int | None = None,
     ) -> str:
         """Fetch a prompt from the LLM-Router API and render it.
 
         Args:
             slug_id: The prompt's slug identifier.
             variables: Optional mapping of template variable names to values.
+            version: Optional version number to pin to.
 
         Returns:
             The rendered prompt string.
@@ -191,7 +193,7 @@ class Gateway:
         Raises:
             RouterAPIError: If api_key is not configured (and not in env).
         """
-        prompt = _api_get_prompt(self.client, slug_id)
+        prompt = _api_get_prompt(self.client, slug_id, version=version)
         return render_prompt(prompt.content, variables)
 
     @property

@@ -176,6 +176,9 @@ class PromptResponse(BaseModel):
     name: str
     content: str
     description: str | None = None
+    current_version: int
+    workspace_id: int
+    created_by: int
     input_variables: list[str] | None = None
     created_at: datetime
     updated_at: datetime
