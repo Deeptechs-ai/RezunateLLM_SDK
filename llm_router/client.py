@@ -5,9 +5,9 @@ import os
 
 import requests
 
-logger = logging.getLogger(__name__)
+import llm_router.constants as constants
 
-BASE_URL = "https://rezunatellm.com"
+logger = logging.getLogger(__name__)
 
 
 class RouterAPIError(Exception):
@@ -55,14 +55,16 @@ class RouterClient:
         Raises:
             RouterAPIError: On connection or HTTP errors.
         """
-        url = f"{BASE_URL}{path}"
+        url = f"{constants.ROUTER_BASE_URL}{path}"
         headers = {"X-API-Key": self.api_key, **kwargs.pop("headers", {})}
 
         try:
             resp = requests.request(method, url, headers=headers, timeout=self.timeout, **kwargs)
             resp.raise_for_status()
         except requests.ConnectionError as exc:
-            raise RouterAPIError(f"Cannot connect to LLM-Router API at {BASE_URL}") from exc
+            raise RouterAPIError(
+                f"Cannot connect to LLM-Router API at {constants.ROUTER_BASE_URL}"
+            ) from exc
         except requests.HTTPError as exc:
             detail = resp.json().get("detail", resp.text) if resp.content else resp.reason
             raise RouterAPIError(detail, status_code=resp.status_code) from exc

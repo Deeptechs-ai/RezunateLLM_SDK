@@ -2,6 +2,9 @@
 
 import re
 
+# Matches mustache-style template variables like {{variable_name}}.
+# Captures the variable name (must start with a letter or underscore,
+# followed by zero or more word characters).
 _TEMPLATE_VAR_RE = re.compile(r"\{\{([a-zA-Z_]\w*)\}\}")
 
 

@@ -10,10 +10,12 @@ from llm_router.guardrails import GuardrailsError, check_guardrails, load_guardr
 from llm_router.models import (
     ChatCompletionRequest,
     ChatCompletionResponse,
+    DetectedEntity,
     GuardrailRule,
     GuardrailsConfig,
     Message,
     PromptResponse,
+    ScanResponse,
 )
 from llm_router.prompts import render_prompt
 from llm_router.providers import (
@@ -38,8 +40,10 @@ __all__ = [
     "check_guardrails",
     "ChatCompletionRequest",
     "ChatCompletionResponse",
+    "DetectedEntity",
     "Message",
     "PromptResponse",
+    "ScanResponse",
     "render_prompt",
     "AnthropicProvider",
     "BaseProvider",
