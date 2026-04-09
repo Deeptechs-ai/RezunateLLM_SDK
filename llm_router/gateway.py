@@ -8,6 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from llm_router.api import get_prompt as _api_get_prompt
+from llm_router.api import scan_text as _api_scan_text
 from llm_router.client import RouterClient
 from llm_router.guardrails import check_guardrails, load_guardrails
 from llm_router.models import (
@@ -16,6 +17,7 @@ from llm_router.models import (
     GuardrailDirection,
     GuardrailsConfig,
     Provider,
+    ScanResponse,
 )
 from llm_router.prompts import render_prompt
 from llm_router.providers import get_provider, list_providers
@@ -96,6 +98,30 @@ def get_available_providers() -> list[Provider]:
     return list_providers()
 
 
+class GuardrailsResource:
+    """Server-side PII detection via the guardrail service.
+
+    Accessed as ``gateway.guardrails.scan(text)``.
+    """
+
+    def __init__(self, gateway: "Gateway") -> None:
+        self._gateway = gateway
+
+    def scan(self, text: str) -> ScanResponse:
+        """Scan text for PII entities using workspace guardrail config.
+
+        Args:
+            text: The text to scan.
+
+        Returns:
+            ScanResponse with detected entities, action taken, and processed text.
+
+        Raises:
+            RouterAPIError: If the API call fails.
+        """
+        return _api_scan_text(self._gateway.client, text)
+
+
 class Gateway:
     """Gateway class with default provider and API key support.
 
@@ -103,6 +129,7 @@ class Gateway:
         default_provider: Default provider to use when not specified.
         default_api_key: Default API key to use when not specified.
         guardrails_config: Optional guardrails configuration for content filtering.
+        guardrails: Server-side PII detection resource.
     """
 
     def __init__(
@@ -125,6 +152,7 @@ class Gateway:
         self.guardrails_config = guardrails_config
         self._router_api_key = router_api_key
         self._client: RouterClient | None = None
+        self.guardrails = GuardrailsResource(self)
 
     @property
     def client(self) -> RouterClient:
