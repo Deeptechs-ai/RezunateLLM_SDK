@@ -4,9 +4,9 @@ Tests for Anthropic Provider.
 
 import responses
 
-from llm_router.models import ChatCompletionRequest, ChatCompletionResponse
-from llm_router.providers.anthropic_models import AnthropicRequest, AnthropicResponse
-from llm_router.providers.anthropic_provider import AnthropicProvider
+from rezunate_llm_sdk.models import ChatCompletionRequest, ChatCompletionResponse
+from rezunate_llm_sdk.providers.anthropic_models import AnthropicRequest, AnthropicResponse
+from rezunate_llm_sdk.providers.anthropic_provider import AnthropicProvider
 
 
 class TestAnthropicProviderProperties:

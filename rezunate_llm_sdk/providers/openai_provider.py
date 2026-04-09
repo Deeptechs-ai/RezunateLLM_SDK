@@ -6,11 +6,11 @@ Uses official OpenAI SDK.
 from typing import Any
 
 from openai import OpenAI
-import llm_router.constants as constants
+import rezunate_llm_sdk.constants as constants
 
-from llm_router.models import ChatCompletionRequest, ChatCompletionResponse, Provider
-from llm_router.providers.base import BaseProvider
-from llm_router.providers.endpoints import OPENAI_BASE_URL, OPENAI_CHAT_ENDPOINT
+from rezunate_llm_sdk.models import ChatCompletionRequest, ChatCompletionResponse, Provider
+from rezunate_llm_sdk.providers.base import BaseProvider
+from rezunate_llm_sdk.providers.endpoints import OPENAI_BASE_URL, OPENAI_CHAT_ENDPOINT
 
 
 class OpenAIProvider(BaseProvider):

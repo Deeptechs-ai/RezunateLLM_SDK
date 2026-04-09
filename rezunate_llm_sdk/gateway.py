@@ -7,18 +7,18 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from llm_router.api import get_prompt as _api_get_prompt
-from llm_router.client import RouterClient
-from llm_router.guardrails import check_guardrails, load_guardrails
-from llm_router.models import (
+from rezunate_llm_sdk.api import get_prompt as _api_get_prompt
+from rezunate_llm_sdk.client import RouterClient
+from rezunate_llm_sdk.guardrails import check_guardrails, load_guardrails
+from rezunate_llm_sdk.models import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     GuardrailDirection,
     GuardrailsConfig,
     Provider,
 )
-from llm_router.prompts import render_prompt
-from llm_router.providers import get_provider, list_providers
+from rezunate_llm_sdk.prompts import render_prompt
+from rezunate_llm_sdk.providers import get_provider, list_providers
 
 # Load environment variables
 load_dotenv()
