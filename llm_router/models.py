@@ -169,6 +169,25 @@ class ChatCompletionResponse(BaseModel):
     error: ErrorInfo | None = None
 
 
+class DetectedEntity(BaseModel):
+    """A single PII entity detected by the guardrail service."""
+
+    text: str
+    label: str
+    score: float
+    start: int
+    end: int
+
+
+class ScanResponse(BaseModel):
+    """Response from a server-side guardrail scan."""
+
+    entities: list[DetectedEntity]
+    action: str
+    blocked: bool
+    text: str
+
+
 class PromptResponse(BaseModel):
     """Prompt returned by the LLM-Router API."""
 
@@ -176,6 +195,9 @@ class PromptResponse(BaseModel):
     name: str
     content: str
     description: str | None = None
+    current_version: int
+    workspace_id: int
+    created_by: int
     input_variables: list[str] | None = None
     created_at: datetime
     updated_at: datetime
