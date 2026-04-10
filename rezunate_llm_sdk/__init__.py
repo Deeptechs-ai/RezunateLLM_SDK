@@ -4,10 +4,10 @@ A unified Python library for chat completions across multiple AI providers
 (OpenAI, Anthropic, Google) using OpenAI-compatible request/response format.
 """
 
-from llm_router.client import RouterAPIError, RouterClient
-from llm_router.gateway import Gateway, chat_complete, get_available_providers
-from llm_router.guardrails import GuardrailsError, check_guardrails, load_guardrails
-from llm_router.models import (
+from rezunate_llm_sdk.client import RouterAPIError, RouterClient
+from rezunate_llm_sdk.gateway import Gateway, chat_complete, get_available_providers
+from rezunate_llm_sdk.guardrails import GuardrailsError, check_guardrails, load_guardrails
+from rezunate_llm_sdk.models import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     DetectedEntity,
@@ -17,8 +17,8 @@ from llm_router.models import (
     PromptResponse,
     ScanResponse,
 )
-from llm_router.prompts import render_prompt
-from llm_router.providers import (
+from rezunate_llm_sdk.prompts import render_prompt
+from rezunate_llm_sdk.providers import (
     AnthropicProvider,
     BaseProvider,
     GoogleProvider,

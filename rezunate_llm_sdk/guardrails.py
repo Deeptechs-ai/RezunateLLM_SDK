@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from llm_router.models import (
+from rezunate_llm_sdk.models import (
     GuardrailAction,
     GuardrailDirection,
     GuardrailsConfig,

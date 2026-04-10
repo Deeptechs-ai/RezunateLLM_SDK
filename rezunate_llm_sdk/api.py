@@ -1,7 +1,7 @@
 """LLM-Router API endpoints."""
 
-from llm_router.client import RouterClient
-from llm_router.models import PromptResponse, ScanResponse
+from rezunate_llm_sdk.client import RouterClient
+from rezunate_llm_sdk.models import PromptResponse, ScanResponse
 
 API_VERSION = "v1"
 PROMPT_ENDPOINT = f"/api/{API_VERSION}/prompts"

@@ -4,9 +4,9 @@ Tests for Provider Factory.
 
 import pytest
 
-from llm_router.models import Provider
-from llm_router.providers.anthropic_provider import AnthropicProvider
-from llm_router.providers.factory import (
+from rezunate_llm_sdk.models import Provider
+from rezunate_llm_sdk.providers.anthropic_provider import AnthropicProvider
+from rezunate_llm_sdk.providers.factory import (
     FACTORY_REGISTRY,
     AnthropicFactory,
     GoogleFactory,
@@ -15,8 +15,8 @@ from llm_router.providers.factory import (
     get_factory,
     register_factory,
 )
-from llm_router.providers.google_provider import GoogleProvider
-from llm_router.providers.openai_provider import OpenAIProvider
+from rezunate_llm_sdk.providers.google_provider import GoogleProvider
+from rezunate_llm_sdk.providers.openai_provider import OpenAIProvider
 
 
 @pytest.fixture
