@@ -4,9 +4,9 @@ Tests for Google (Gemini) Provider.
 
 import responses
 
-from llm_router.models import ChatCompletionRequest, ChatCompletionResponse
-from llm_router.providers.google_models import GoogleRequest, GoogleResponse
-from llm_router.providers.google_provider import GoogleProvider
+from rezunate_llm_sdk.models import ChatCompletionRequest, ChatCompletionResponse
+from rezunate_llm_sdk.providers.google_models import GoogleRequest, GoogleResponse
+from rezunate_llm_sdk.providers.google_provider import GoogleProvider
 
 
 class TestGoogleProviderProperties:

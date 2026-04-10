@@ -6,8 +6,8 @@ import pytest
 import responses
 from pydantic import BaseModel
 
-from llm_router.models import ChatCompletionRequest, ChatCompletionResponse
-from llm_router.providers.base import (
+from rezunate_llm_sdk.models import ChatCompletionRequest, ChatCompletionResponse
+from rezunate_llm_sdk.providers.base import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_RETRY_DELAY,
     BaseProvider,

@@ -5,7 +5,7 @@ import os
 
 import requests
 
-import llm_router.constants as constants
+import rezunate_llm_sdk.constants as constants
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class RouterClient:
     """HTTP client for the LLM-Router API.
 
     Handles authentication, request dispatch, and error wrapping.
-    Endpoint-specific methods live in ``llm_router.api``.
+    Endpoint-specific methods live in ``rezunate_llm_sdk.api``.
 
     Args:
         api_key: API key for authentication (sent as X-API-Key header).

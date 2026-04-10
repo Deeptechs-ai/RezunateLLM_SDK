@@ -5,8 +5,8 @@ Each provider has its own factory class for creating instances.
 
 from abc import ABC, abstractmethod
 
-from llm_router.models import Provider
-from llm_router.providers.base import BaseProvider
+from rezunate_llm_sdk.models import Provider
+from rezunate_llm_sdk.providers.base import BaseProvider
 
 
 class ProviderFactory(ABC):
@@ -44,7 +44,7 @@ class OpenAIFactory(ProviderFactory):
         return Provider.OPENAI
 
     def create_provider(self, api_key: str, **kwargs) -> BaseProvider:
-        from llm_router.providers.openai_provider import OpenAIProvider
+        from rezunate_llm_sdk.providers.openai_provider import OpenAIProvider
 
         return OpenAIProvider(api_key=api_key, **kwargs)
 
@@ -57,7 +57,7 @@ class AnthropicFactory(ProviderFactory):
         return Provider.ANTHROPIC
 
     def create_provider(self, api_key: str, **kwargs) -> BaseProvider:
-        from llm_router.providers.anthropic_provider import AnthropicProvider
+        from rezunate_llm_sdk.providers.anthropic_provider import AnthropicProvider
 
         return AnthropicProvider(api_key=api_key, **kwargs)
 
@@ -70,7 +70,7 @@ class GoogleFactory(ProviderFactory):
         return Provider.GOOGLE
 
     def create_provider(self, api_key: str, **kwargs) -> BaseProvider:
-        from llm_router.providers.google_provider import GoogleProvider
+        from rezunate_llm_sdk.providers.google_provider import GoogleProvider
 
         return GoogleProvider(api_key=api_key, **kwargs)
 
