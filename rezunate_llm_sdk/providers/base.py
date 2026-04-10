@@ -11,15 +11,15 @@ from typing import Any
 import requests
 from pydantic import BaseModel
 
-import llm_router.constants as constants
-from llm_router.models import (
+import rezunate_llm_sdk.constants as constants
+from rezunate_llm_sdk.models import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     ErrorInfo,
     Provider,
     Usage,
 )
-from llm_router.providers.endpoints import get_url
+from rezunate_llm_sdk.providers.endpoints import get_url
 
 
 class BaseProvider(ABC):

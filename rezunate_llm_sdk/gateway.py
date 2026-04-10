@@ -7,11 +7,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from llm_router.api import get_prompt as _api_get_prompt
-from llm_router.api import scan_text as _api_scan_text
-from llm_router.client import RouterClient
-from llm_router.guardrails import check_guardrails, load_guardrails
-from llm_router.models import (
+from rezunate_llm_sdk.api import get_prompt as _api_get_prompt
+from rezunate_llm_sdk.api import scan_text as _api_scan_text
+from rezunate_llm_sdk.client import RouterClient
+from rezunate_llm_sdk.guardrails import check_guardrails, load_guardrails
+from rezunate_llm_sdk.models import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     GuardrailDirection,
@@ -19,8 +19,8 @@ from llm_router.models import (
     Provider,
     ScanResponse,
 )
-from llm_router.prompts import render_prompt
-from llm_router.providers import get_provider, list_providers
+from rezunate_llm_sdk.prompts import render_prompt
+from rezunate_llm_sdk.providers import get_provider, list_providers
 
 # Load environment variables
 load_dotenv()
@@ -137,7 +137,7 @@ class Gateway:
         default_provider: Provider | str | None = None,
         default_api_key: str | None = None,
         guardrails_config: GuardrailsConfig | None = None,
-        router_api_key: str | None = None,
+        REZUNATE_LLM_API_KEY: str | None = None,
     ) -> None:
         """Initialize Gateway.
 
@@ -145,12 +145,12 @@ class Gateway:
             default_provider: Default provider to use.
             default_api_key: Default API key to use for the LLM provider.
             guardrails_config: Optional guardrails configuration for content filtering.
-            router_api_key: API key for the LLM-Router API (falls back to ROUTER_API_KEY env var).
+            REZUNATE_LLM_API_KEY: API key for the LLM-Router API (falls back to REZUNATE_LLM_API_KEY env var).
         """
         self.default_provider = default_provider
         self.default_api_key = default_api_key
         self.guardrails_config = guardrails_config
-        self._router_api_key = router_api_key
+        self._REZUNATE_LLM_API_KEY = REZUNATE_LLM_API_KEY
         self._client: RouterClient | None = None
         self.guardrails = GuardrailsResource(self)
 
@@ -159,8 +159,8 @@ class Gateway:
         """Lazily-created RouterClient for the LLM-Router API."""
         if self._client is None:
             kwargs: dict = {}
-            if self._router_api_key:
-                kwargs["api_key"] = self._router_api_key
+            if self._REZUNATE_LLM_API_KEY:
+                kwargs["api_key"] = self._REZUNATE_LLM_API_KEY
             self._client = RouterClient(**kwargs)
         return self._client
 

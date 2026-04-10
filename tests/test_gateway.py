@@ -5,7 +5,7 @@ Tests for Gateway (main router).
 import pytest
 import responses
 
-from llm_router.gateway import (
+from rezunate_llm_sdk.gateway import (
     ChatCompletionRequest,
     Gateway,
     chat_complete,

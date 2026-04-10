@@ -6,8 +6,8 @@ Transforms OpenAI format to Anthropic format
 import time
 import uuid
 
-import llm_router.constants as constants
-from llm_router.models import (
+import rezunate_llm_sdk.constants as constants
+from rezunate_llm_sdk.models import (
     FINISH_REASON_MAP,
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -18,13 +18,13 @@ from llm_router.models import (
     Role,
     Usage,
 )
-from llm_router.providers.anthropic_models import (
+from rezunate_llm_sdk.providers.anthropic_models import (
     AnthropicMessage,
     AnthropicRequest,
     AnthropicResponse,
 )
-from llm_router.providers.base import BaseProvider
-from llm_router.providers.endpoints import (
+from rezunate_llm_sdk.providers.base import BaseProvider
+from rezunate_llm_sdk.providers.endpoints import (
     ANTHROPIC_BASE_URL,
     ANTHROPIC_DEFAULT_VERSION,
     ANTHROPIC_MESSAGES_ENDPOINT,

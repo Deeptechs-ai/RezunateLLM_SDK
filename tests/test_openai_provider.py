@@ -4,8 +4,8 @@ Tests for OpenAI Provider.
 
 import responses
 
-from llm_router.models import ChatCompletionRequest, ChatCompletionResponse
-from llm_router.providers.openai_provider import OpenAIProvider
+from rezunate_llm_sdk.models import ChatCompletionRequest, ChatCompletionResponse
+from rezunate_llm_sdk.providers.openai_provider import OpenAIProvider
 
 
 class TestOpenAIProviderProperties:
