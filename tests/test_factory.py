@@ -6,17 +6,25 @@ import pytest
 
 from rezunate_llm_sdk.models import Provider
 from rezunate_llm_sdk.providers.anthropic_provider import AnthropicProvider
+from rezunate_llm_sdk.providers.deepseek_provider import DeepSeekProvider
 from rezunate_llm_sdk.providers.factory import (
     FACTORY_REGISTRY,
     AnthropicFactory,
+    DeepSeekFactory,
     GoogleFactory,
+    GrokFactory,
+    LlamaFactory,
     OpenAIFactory,
     ProviderFactory,
+    QwenFactory,
     get_factory,
     register_factory,
 )
 from rezunate_llm_sdk.providers.google_provider import GoogleProvider
+from rezunate_llm_sdk.providers.grok_provider import GrokProvider
+from rezunate_llm_sdk.providers.llama_provider import LlamaProvider
 from rezunate_llm_sdk.providers.openai_provider import OpenAIProvider
+from rezunate_llm_sdk.providers.qwen_provider import QwenProvider
 
 
 @pytest.fixture
@@ -43,12 +51,20 @@ class TestFactoryRegistry:
         assert Provider.OPENAI in FACTORY_REGISTRY
         assert Provider.ANTHROPIC in FACTORY_REGISTRY
         assert Provider.GOOGLE in FACTORY_REGISTRY
+        assert Provider.GROK in FACTORY_REGISTRY
+        assert Provider.LLAMA in FACTORY_REGISTRY
+        assert Provider.DEEPSEEK in FACTORY_REGISTRY
+        assert Provider.QWEN in FACTORY_REGISTRY
 
     def test_registry_factories_are_instances(self):
         """Test registry contains factory instances, not classes."""
         assert isinstance(FACTORY_REGISTRY[Provider.OPENAI], OpenAIFactory)
         assert isinstance(FACTORY_REGISTRY[Provider.ANTHROPIC], AnthropicFactory)
         assert isinstance(FACTORY_REGISTRY[Provider.GOOGLE], GoogleFactory)
+        assert isinstance(FACTORY_REGISTRY[Provider.GROK], GrokFactory)
+        assert isinstance(FACTORY_REGISTRY[Provider.LLAMA], LlamaFactory)
+        assert isinstance(FACTORY_REGISTRY[Provider.DEEPSEEK], DeepSeekFactory)
+        assert isinstance(FACTORY_REGISTRY[Provider.QWEN], QwenFactory)
 
 
 class TestGetFactory:
@@ -68,6 +84,26 @@ class TestGetFactory:
         """Test getting Google factory."""
         factory = get_factory(Provider.GOOGLE)
         assert isinstance(factory, GoogleFactory)
+
+    def test_get_grok_factory(self):
+        """Test getting Grok factory."""
+        factory = get_factory(Provider.GROK)
+        assert isinstance(factory, GrokFactory)
+
+    def test_get_llama_factory(self):
+        """Test getting Llama factory."""
+        factory = get_factory(Provider.LLAMA)
+        assert isinstance(factory, LlamaFactory)
+
+    def test_get_deepseek_factory(self):
+        """Test getting DeepSeek factory."""
+        factory = get_factory(Provider.DEEPSEEK)
+        assert isinstance(factory, DeepSeekFactory)
+
+    def test_get_qwen_factory(self):
+        """Test getting Qwen factory."""
+        factory = get_factory(Provider.QWEN)
+        assert isinstance(factory, QwenFactory)
 
     def test_unknown_provider_raises_error(self):
         """Test unknown provider raises ValueError."""
@@ -215,6 +251,106 @@ class TestGoogleFactory:
         )
 
         assert provider.timeout == 120.0
+
+
+class TestGrokFactory:
+    """Tests for Grok factory."""
+
+    def test_provider_name(self):
+        factory = GrokFactory()
+        assert factory.provider_name == Provider.GROK
+
+    def test_creates_grok_provider(self, mock_api_key):
+        factory = GrokFactory()
+        provider = factory.create_provider(api_key=mock_api_key)
+
+        assert isinstance(provider, GrokProvider)
+        assert provider.api_key == mock_api_key
+
+    def test_passes_kwargs_to_provider(self, mock_api_key):
+        factory = GrokFactory()
+        provider = factory.create_provider(
+            api_key=mock_api_key,
+            max_retries=5,
+            timeout=120.0,
+        )
+        assert provider.max_retries == 5
+        assert provider.timeout == 120.0
+
+
+class TestLlamaFactory:
+    """Tests for Llama factory."""
+
+    def test_provider_name(self):
+        factory = LlamaFactory()
+        assert factory.provider_name == Provider.LLAMA
+
+    def test_creates_llama_provider(self, mock_api_key):
+        factory = LlamaFactory()
+        provider = factory.create_provider(api_key=mock_api_key)
+
+        assert isinstance(provider, LlamaProvider)
+        assert provider.api_key == mock_api_key
+
+    def test_passes_kwargs_to_provider(self, mock_api_key):
+        factory = LlamaFactory()
+        provider = factory.create_provider(
+            api_key=mock_api_key,
+            max_retries=4,
+            timeout=90.0,
+        )
+        assert provider.max_retries == 4
+        assert provider.timeout == 90.0
+
+
+class TestDeepSeekFactory:
+    """Tests for DeepSeek factory."""
+
+    def test_provider_name(self):
+        factory = DeepSeekFactory()
+        assert factory.provider_name == Provider.DEEPSEEK
+
+    def test_creates_deepseek_provider(self, mock_api_key):
+        factory = DeepSeekFactory()
+        provider = factory.create_provider(api_key=mock_api_key)
+
+        assert isinstance(provider, DeepSeekProvider)
+        assert provider.api_key == mock_api_key
+
+    def test_passes_kwargs_to_provider(self, mock_api_key):
+        factory = DeepSeekFactory()
+        provider = factory.create_provider(
+            api_key=mock_api_key,
+            max_retries=2,
+            timeout=45.0,
+        )
+        assert provider.max_retries == 2
+        assert provider.timeout == 45.0
+
+
+class TestQwenFactory:
+    """Tests for Qwen factory."""
+
+    def test_provider_name(self):
+        factory = QwenFactory()
+        assert factory.provider_name == Provider.QWEN
+
+    def test_creates_qwen_provider(self, mock_api_key):
+        factory = QwenFactory()
+        provider = factory.create_provider(api_key=mock_api_key)
+
+        assert isinstance(provider, QwenProvider)
+        assert provider.api_key == mock_api_key
+
+    def test_passes_kwargs_to_provider(self, mock_api_key):
+        factory = QwenFactory()
+        provider = factory.create_provider(
+            api_key=mock_api_key,
+            max_retries=3,
+            timeout=60.0,
+        )
+        assert provider.max_retries == 3
+        assert provider.timeout == 60.0
 
 
 class TestProviderFactoryABC:
