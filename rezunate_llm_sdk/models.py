@@ -16,6 +16,10 @@ class Provider(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GOOGLE = "google"
+    GROK = "grok"
+    LLAMA = "llama"
+    DEEPSEEK = "deepseek"
+    QWEN = "qwen"
 
 
 class Role(str, Enum):
@@ -109,11 +113,15 @@ class FinishReason(str, Enum):
 
 # Centralized mapping for all provider-specific finish reasons
 FINISH_REASON_MAP: dict[str, FinishReason] = {
-    # OpenAI (passthrough)
+    # OpenAI-style values — also emitted by xAI (Grok), DeepSeek,
+    # Qwen native (DashScope, result_format="message"), and Llama native (Meta).
+    # All five providers use the same lowercase vocabulary.
     "stop": FinishReason.STOP,
     "length": FinishReason.LENGTH,
     "content_filter": FinishReason.CONTENT_FILTER,
     "tool_calls": FinishReason.TOOL_CALLS,
+    # DeepSeek-specific — returned by deepseek-reasoner under resource pressure
+    "insufficient_system_resource": FinishReason.STOP,
     # Google Gemini
     "STOP": FinishReason.STOP,
     "MAX_TOKENS": FinishReason.LENGTH,

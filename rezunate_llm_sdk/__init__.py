@@ -21,8 +21,12 @@ from rezunate_llm_sdk.prompts import render_prompt
 from rezunate_llm_sdk.providers import (
     AnthropicProvider,
     BaseProvider,
+    DeepSeekProvider,
     GoogleProvider,
+    GrokProvider,
+    LlamaProvider,
     OpenAIProvider,
+    QwenProvider,
     get_provider,
     list_providers,
 )
@@ -47,8 +51,12 @@ __all__ = [
     "render_prompt",
     "AnthropicProvider",
     "BaseProvider",
+    "DeepSeekProvider",
     "GoogleProvider",
+    "GrokProvider",
+    "LlamaProvider",
     "OpenAIProvider",
+    "QwenProvider",
     "get_provider",
     "list_providers",
 ]
