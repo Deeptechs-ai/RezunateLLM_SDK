@@ -57,9 +57,10 @@ class RouterClient:
         """
         url = f"{constants.ROUTER_BASE_URL}{path}"
         headers = {"X-API-Key": self.api_key, **kwargs.pop("headers", {})}
+        timeout = kwargs.pop("timeout", self.timeout)
 
         try:
-            resp = requests.request(method, url, headers=headers, timeout=self.timeout, **kwargs)
+            resp = requests.request(method, url, headers=headers, timeout=timeout, **kwargs)
             resp.raise_for_status()
         except requests.ConnectionError as exc:
             raise RouterAPIError(
