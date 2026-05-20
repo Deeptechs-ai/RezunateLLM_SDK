@@ -12,6 +12,7 @@ ANTHROPIC_DEFAULT_VERSION = "2023-06-01"
 # Google (Gemini)
 GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 GOOGLE_GENERATE_CONTENT_ENDPOINT = "/models/{model}:generateContent"
+GOOGLE_STREAM_GENERATE_CONTENT_ENDPOINT = "/models/{model}:streamGenerateContent?alt=sse"
 
 # Grok (xAI) — OpenAI-compatible API
 GROK_BASE_URL = "https://api.x.ai/v1"

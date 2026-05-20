@@ -6,13 +6,16 @@ Transforms OpenAI format to Anthropic format
 import json
 import time
 import uuid
+from typing import Any
 
 import rezunate_llm_sdk.constants as constants
 from rezunate_llm_sdk.models import (
     FINISH_REASON_MAP,
+    ChatCompletionChunk,
     ChatCompletionRequest,
     ChatCompletionResponse,
     Choice,
+    ChoiceDelta,
     FinishReason,
     FunctionCall,
     Message,
@@ -37,11 +40,12 @@ from rezunate_llm_sdk.providers.anthropic_models import (
     AnthropicToolResultBlock,
     AnthropicToolUseBlock,
 )
-from rezunate_llm_sdk.providers.base import BaseProvider
+from rezunate_llm_sdk.providers.base import BaseProvider, StreamState
 from rezunate_llm_sdk.providers.endpoints import (
     ANTHROPIC_BASE_URL,
     ANTHROPIC_DEFAULT_VERSION,
     ANTHROPIC_MESSAGES_ENDPOINT,
+    get_url,
 )
 
 
@@ -183,6 +187,56 @@ class AnthropicProvider(BaseProvider):
             provider=self.provider_name,
         )
 
+    # ---- streaming hooks (driven by BaseProvider.stream) ----------------
+
+    def _build_stream_request(
+        self, request: ChatCompletionRequest
+    ) -> tuple[str, dict[str, Any], dict[str, str]]:
+        body = self.transform_request(request).model_dump(exclude_none=True)
+        body["stream"] = True
+        return get_url(self.base_url, self.get_endpoint()), body, self.get_headers()
+
+    def _is_stream_terminator(self, event: str, data: str) -> bool:
+        return event == "message_stop"
+
+    def _translate_frame(
+        self, event: str, data: str, state: StreamState
+    ) -> ChatCompletionChunk | None:
+        if event in ("ping", "content_block_start", "content_block_stop"):
+            return None
+
+        payload = self._parse_json_frame(data) or {}
+
+        if event == "message_start":
+            message = payload.get("message", {})
+            state.id = message.get("id") or state.id
+            state.model = message.get("model") or state.model
+            state.input_tokens = message.get("usage", {}).get("input_tokens", 0)
+            return self._make_chunk(state, delta=ChoiceDelta(role=Role.ASSISTANT, content=""))
+
+        if event == "content_block_delta":
+            delta = payload.get("delta", {})
+            if delta.get("type") == "text_delta" and (text := delta.get("text", "")):
+                return self._make_chunk(state, delta=ChoiceDelta(content=text))
+            return None
+
+        if event == "message_delta":
+            stop_reason = payload.get("delta", {}).get("stop_reason")
+            finish = FINISH_REASON_MAP.get(stop_reason, FinishReason.STOP) if stop_reason else None
+            output_tokens = payload.get("usage", {}).get("output_tokens", 0)
+            usage = Usage(
+                prompt_tokens=state.input_tokens,
+                completion_tokens=output_tokens,
+                total_tokens=state.input_tokens + output_tokens,
+            )
+            return self._make_chunk(state, finish_reason=finish, usage=usage)
+
+        if event == "error":
+            message = payload.get("error", {}).get("message") or "anthropic stream error"
+            return self._error_chunk(RuntimeError(message), state.model)
+
+        return None
+
 
 def _message_to_anthropic_blocks(
     msg: Message,
@@ -234,3 +288,4 @@ def _translate_tool_choice(
     if isinstance(tool_choice, ToolChoiceOption):
         return AnthropicSpecificToolChoice(name=tool_choice.function.name)
     return None
+

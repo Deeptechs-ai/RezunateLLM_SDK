@@ -5,11 +5,18 @@ A unified Python library for chat completions across multiple AI providers
 """
 
 from rezunate_llm_sdk.client import RouterAPIError, RouterClient
-from rezunate_llm_sdk.gateway import Gateway, chat_complete, get_available_providers
+from rezunate_llm_sdk.gateway import (
+    Gateway,
+    chat_complete,
+    get_available_providers,
+)
 from rezunate_llm_sdk.guardrails import GuardrailsError, check_guardrails, load_guardrails
 from rezunate_llm_sdk.models import (
+    ChatCompletionChunk,
     ChatCompletionRequest,
     ChatCompletionResponse,
+    ChoiceChunk,
+    ChoiceDelta,
     DetectedEntity,
     FunctionCall,
     FunctionDefinition,
@@ -50,6 +57,9 @@ __all__ = [
     "check_guardrails",
     "ChatCompletionRequest",
     "ChatCompletionResponse",
+    "ChatCompletionChunk",
+    "ChoiceChunk",
+    "ChoiceDelta",
     "DetectedEntity",
     "FunctionCall",
     "FunctionDefinition",

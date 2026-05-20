@@ -236,6 +236,34 @@ class ChatCompletionResponse(BaseModel):
     error: ErrorInfo | None = None
 
 
+class ChoiceDelta(BaseModel):
+    """Incremental delta for a streaming choice (OpenAI chunk shape)."""
+
+    role: Role | None = None
+    content: str | None = None
+
+
+class ChoiceChunk(BaseModel):
+    """A single choice in a streaming chat completion chunk."""
+
+    index: int = 0
+    delta: ChoiceDelta = Field(default_factory=ChoiceDelta)
+    finish_reason: FinishReason | None = None
+
+
+class ChatCompletionChunk(BaseModel):
+    """One chunk of a streaming chat completion in OpenAI format."""
+
+    id: str | None = None
+    object: str = "chat.completion.chunk"
+    created: int = 0
+    model: str | None = None
+    choices: list[ChoiceChunk] = Field(default_factory=list)
+    usage: Usage | None = None
+    provider: Provider | None = None
+    error: ErrorInfo | None = None
+
+
 class DetectedEntity(BaseModel):
     """A single PII entity detected by the guardrail service."""
 
