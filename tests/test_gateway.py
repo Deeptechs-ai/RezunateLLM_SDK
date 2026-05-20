@@ -488,76 +488,75 @@ class TestGatewayIntegration:
 
     @responses.activate
     def test_multiple_providers_same_gateway(
-        self, mock_api_key, sample_messages, openai_response, anthropic_response
-    ):
-        """Test using multiple providers with same Gateway instance."""
-        responses.add(
-            responses.POST,
-            "https://api.openai.com/v1/chat/completions",
-            json=openai_response,
-            status=200,
-        )
-        responses.add(
-            responses.POST,
-            "https://api.anthropic.com/v1/messages",
-            json=anthropic_response,
-            status=200,
-        )
-
-        gateway = Gateway()
-
-        # Call OpenAI
-        request1 = ChatCompletionRequest(model="gpt-4", messages=sample_messages)
-        result1 = gateway.chat_complete(
-            request1,
-            provider="openai",
-            api_key=mock_api_key,
-        )
-
-        # Call Anthropic
-        request2 = ChatCompletionRequest(
-            model="claude-sonnet-4-20250514",
-            messages=sample_messages,
-            max_tokens=100,
-        )
-        result2 = gateway.chat_complete(
-            request2,
-            provider="anthropic",
-            api_key=mock_api_key,
-        )
-
-        assert result1.provider == "openai"
-        assert result2.provider == "anthropic"
-        assert len(responses.calls) == 2
-
-    @responses.activate
-    def test_new_four_providers_same_gateway(
         self,
         mock_api_key,
         mocker,
         sample_messages,
+        openai_response,
+        anthropic_response,
+        google_response,
         grok_response,
         deepseek_response,
         qwen_response,
         llama_response,
     ):
-        """One Gateway instance routes correctly to all four new providers.
+        """One Gateway instance routes correctly to every supported provider.
 
-        Combines both mocking strategies: ``mocker.patch`` for the
-        OpenAI-SDK-based providers (Grok, DeepSeek) and ``responses`` for the
-        native HTTP-based providers (Qwen, Llama).
+        The seven providers split into two transport classes, so the test
+        combines both mocking strategies:
+          - SDK-based (httpx under the hood) — OpenAI, Grok, DeepSeek;
+            mocked by patching the ``OpenAI`` class imported by each module.
+          - Direct ``requests``-based — Anthropic, Google, Qwen, Llama;
+            mocked with the ``responses`` library.
         """
+        # SDK-based providers: patch the OpenAI class in each provider module.
+        openai_mock = _patch_openai_class_in(
+            "rezunate_llm_sdk.providers.openai_provider", mocker, openai_response
+        )
         grok_mock = _patch_openai_class_in(
             "rezunate_llm_sdk.providers.grok_provider", mocker, grok_response
         )
         deepseek_mock = _patch_openai_class_in(
             "rezunate_llm_sdk.providers.deepseek_provider", mocker, deepseek_response
         )
+
+        # HTTP-based providers: register URL stubs with responses.
+        responses.add(
+            responses.POST,
+            "https://api.anthropic.com/v1/messages",
+            json=anthropic_response,
+            status=200,
+        )
+        responses.add(
+            responses.POST,
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+            json=google_response,
+            status=200,
+        )
         responses.add(responses.POST, QWEN_FULL_URL, json=qwen_response, status=200)
         responses.add(responses.POST, LLAMA_FULL_URL, json=llama_response, status=200)
 
         gateway = Gateway()
 
+        result_openai = gateway.chat_complete(
+            ChatCompletionRequest(model="gpt-4", messages=sample_messages),
+            provider="openai",
+            api_key=mock_api_key,
+        )
+        result_anthropic = gateway.chat_complete(
+            ChatCompletionRequest(
+                model="claude-sonnet-4-20250514",
+                messages=sample_messages,
+                max_tokens=100,
+            ),
+            provider="anthropic",
+            api_key=mock_api_key,
+        )
+        result_google = gateway.chat_complete(
+            ChatCompletionRequest(model="gemini-2.0-flash", messages=sample_messages),
+            provider="google",
+            api_key=mock_api_key,
+        )
         result_grok = gateway.chat_complete(
             ChatCompletionRequest(model="grok-3-mini", messages=sample_messages),
             provider="grok",
@@ -582,11 +581,18 @@ class TestGatewayIntegration:
             api_key=mock_api_key,
         )
 
+        # Each call was routed to the right provider.
+        assert result_openai.provider == "openai"
+        assert result_anthropic.provider == "anthropic"
+        assert result_google.provider == "google"
         assert result_grok.provider == "grok"
         assert result_deepseek.provider == "deepseek"
         assert result_qwen.provider == "qwen"
         assert result_llama.provider == "llama"
+
+        # SDK-based providers each invoked once via the patched OpenAI client.
+        openai_mock.assert_called_once()
         grok_mock.assert_called_once()
         deepseek_mock.assert_called_once()
-        # responses.calls captures the two HTTP-mocked providers
-        assert len(responses.calls) == 2
+        # responses.calls captures the four HTTP-mocked providers.
+        assert len(responses.calls) == 4

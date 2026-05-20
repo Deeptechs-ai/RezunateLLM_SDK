@@ -31,12 +31,6 @@ from rezunate_llm_sdk.providers.llama_models import (
 )
 
 
-# Meta's native ``metrics`` array uses these well-known keys for token counts.
-_METRIC_PROMPT_TOKENS = "num_prompt_tokens"
-_METRIC_COMPLETION_TOKENS = "num_completion_tokens"
-_METRIC_TOTAL_TOKENS = "num_total_tokens"
-
-
 class LlamaProvider(BaseProvider):
     """Llama provider against Meta's native chat completion API."""
 
@@ -110,10 +104,10 @@ class LlamaProvider(BaseProvider):
         for metric in response.metrics:
             metric_values[metric.metric] = int(metric.value)
 
-        prompt_tokens = metric_values.get(_METRIC_PROMPT_TOKENS, 0)
-        completion_tokens = metric_values.get(_METRIC_COMPLETION_TOKENS, 0)
+        prompt_tokens = metric_values.get(constants.LLAMA_METRIC_PROMPT_TOKENS, 0)
+        completion_tokens = metric_values.get(constants.LLAMA_METRIC_COMPLETION_TOKENS, 0)
         total_tokens = metric_values.get(
-            _METRIC_TOTAL_TOKENS, prompt_tokens + completion_tokens
+            constants.LLAMA_METRIC_TOTAL_TOKENS, prompt_tokens + completion_tokens
         )
 
         return ChatCompletionResponse(
