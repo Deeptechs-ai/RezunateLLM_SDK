@@ -2,15 +2,8 @@
 Llama (Meta) native API Pydantic models.
 
 These represent Meta's native Llama API request/response format
-(NOT the /compat/v1 OpenAI-compatible endpoint). Used for type safety
-and validation in the native Llama provider.
-
-Key differences from OpenAI:
-  - Response uses ``completion_message`` (single object) instead of
-    ``choices`` (array).
-  - Message content is a typed block ``{type: "text", text: "..."}``,
-    not a plain string.
-  - Token counts arrive in a ``metrics`` array, not a ``usage`` object.
+(NOT the /compat/v1 OpenAI-compatible endpoint). Used for type
+safety and validation in the native Llama provider.
 
 Reference: Meta Llama API documentation at llama.developer.meta.com.
 """

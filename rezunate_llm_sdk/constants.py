@@ -17,3 +17,8 @@ RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 # Router API
 ROUTER_BASE_URL = os.getenv("ROUTER_BASE_URL", "https://rezunatellm.com")
+
+# Llama (Meta) native API — well-known keys in the response ``metrics`` array
+LLAMA_METRIC_PROMPT_TOKENS = "num_prompt_tokens"
+LLAMA_METRIC_COMPLETION_TOKENS = "num_completion_tokens"
+LLAMA_METRIC_TOTAL_TOKENS = "num_total_tokens"
