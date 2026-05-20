@@ -7,6 +7,9 @@ API_VERSION = "v1"
 PROMPT_ENDPOINT = f"/api/{API_VERSION}/prompts"
 GUARDRAILS_ENDPOINT = f"/api/{API_VERSION}/guardrails"
 
+# Scans can take a while when the inference service cold-starts
+SCAN_TIMEOUT_SECONDS = 180
+
 
 def get_prompt(client: RouterClient, slug_id: str, version: int | None = None) -> PromptResponse:
     """Fetch a prompt by slug from the LLM-Router API.
@@ -42,5 +45,10 @@ def scan_text(client: RouterClient, text: str) -> ScanResponse:
     Raises:
         RouterAPIError: If the API returns an error or the request fails.
     """
-    resp = client.request("POST", f"{GUARDRAILS_ENDPOINT}/scan", json={"text": text})
+    resp = client.request(
+        "POST",
+        f"{GUARDRAILS_ENDPOINT}/scan",
+        json={"text": text},
+        timeout=SCAN_TIMEOUT_SECONDS,
+    )
     return ScanResponse.model_validate(resp.json())
