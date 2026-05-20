@@ -7,21 +7,24 @@ Uses the international Singapore region by default.
 
 import time
 import uuid
+from typing import Any
 
 import rezunate_llm_sdk.constants as constants
 from rezunate_llm_sdk.models import (
     FINISH_REASON_MAP,
+    ChatCompletionChunk,
     ChatCompletionRequest,
     ChatCompletionResponse,
     Choice,
+    ChoiceDelta,
     FinishReason,
     Provider,
     ResponseMessage,
     Role,
     Usage,
 )
-from rezunate_llm_sdk.providers.base import BaseProvider
-from rezunate_llm_sdk.providers.endpoints import QWEN_BASE_URL, QWEN_GENERATION_ENDPOINT
+from rezunate_llm_sdk.providers.base import BaseProvider, StreamState
+from rezunate_llm_sdk.providers.endpoints import QWEN_BASE_URL, QWEN_GENERATION_ENDPOINT, get_url
 from rezunate_llm_sdk.providers.qwen_models import (
     QwenInput,
     QwenMessage,
@@ -29,6 +32,9 @@ from rezunate_llm_sdk.providers.qwen_models import (
     QwenRequest,
     QwenResponse,
 )
+
+# DashScope opts into SSE streaming via this request header.
+_DASHSCOPE_SSE_HEADER = "X-DashScope-SSE"
 
 
 class QwenProvider(BaseProvider):
@@ -140,3 +146,68 @@ class QwenProvider(BaseProvider):
             ),
             provider=self.provider_name,
         )
+
+    # ---- streaming hooks (driven by BaseProvider.stream) ----------------
+
+    def _build_stream_request(
+        self, request: ChatCompletionRequest
+    ) -> tuple[str, dict[str, Any], dict[str, str]]:
+        body = self.transform_request(request).model_dump(exclude_none=True)
+        # Ensure incremental_output is enabled so each frame is a delta.
+        body.setdefault("parameters", {})["incremental_output"] = True
+
+        headers = {**self.get_headers(), _DASHSCOPE_SSE_HEADER: "enable"}
+        url = get_url(self.base_url, self.get_endpoint())
+        return url, body, headers
+
+    def _translate_frame(
+        self, event: str, data: str, state: StreamState
+    ) -> ChatCompletionChunk | None:
+        payload = self._parse_json_frame(data)
+        if payload is None:
+            return None
+
+        output = payload.get("output") or {}
+        text = ""
+        finish_reason_raw: str | None = None
+        if choices_payload := (output.get("choices") or []):
+            first = choices_payload[0]
+            text = (first.get("message") or {}).get("content") or ""
+            finish_reason_raw = first.get("finish_reason")
+        elif output.get("text") is not None:
+            text = output.get("text") or ""
+            finish_reason_raw = output.get("finish_reason")
+
+        # DashScope sends "null"/"" finish_reason while streaming; only the
+        # final frame carries a real value.
+        finish_reason = None
+        if finish_reason_raw and finish_reason_raw != "null":
+            finish_reason = FINISH_REASON_MAP.get(finish_reason_raw, FinishReason.STOP)
+
+        usage = None
+        if usage_payload := payload.get("usage"):
+            input_tokens = usage_payload.get("input_tokens", 0)
+            output_tokens = usage_payload.get("output_tokens", 0)
+            total_tokens = usage_payload.get("total_tokens") or (input_tokens + output_tokens)
+            usage = Usage(
+                prompt_tokens=input_tokens,
+                completion_tokens=output_tokens,
+                total_tokens=total_tokens,
+            )
+
+        delta = ChoiceDelta()
+        if not state.role_sent:
+            delta.role = Role.ASSISTANT
+            state.role_sent = True
+        if text:
+            delta.content = text
+
+        # Skip frames that carry neither content nor a terminal signal.
+        if not text and finish_reason is None and usage is None and state.role_sent:
+            return None
+
+        # Prefer the per-frame request_id over the state's uuid placeholder.
+        if request_id := payload.get("request_id"):
+            state.id = request_id
+
+        return self._make_chunk(state, delta=delta, finish_reason=finish_reason, usage=usage)

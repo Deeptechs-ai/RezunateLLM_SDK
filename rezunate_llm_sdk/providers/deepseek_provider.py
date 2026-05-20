@@ -1,48 +1,25 @@
-"""
-DeepSeek Provider.
-Uses the OpenAI SDK against DeepSeek's OpenAI-compatible chat completions endpoint.
-"""
+"""DeepSeek Provider — uses DeepSeek's OpenAI-compatible API."""
 
 from typing import Any
 
-from openai import OpenAI
-
 from rezunate_llm_sdk.models import FINISH_REASON_MAP, ChatCompletionResponse, Provider
 from rezunate_llm_sdk.providers.endpoints import DEEPSEEK_BASE_URL, DEEPSEEK_CHAT_ENDPOINT
-from rezunate_llm_sdk.providers.openai_provider import OpenAIProvider
+from rezunate_llm_sdk.providers.openai_compatible import OpenAICompatibleProvider
 
 
-class DeepSeekProvider(OpenAIProvider):
-    """DeepSeek provider — uses DeepSeek's OpenAI-compatible API."""
+class DeepSeekProvider(OpenAICompatibleProvider):
+    """DeepSeek provider."""
 
-    def __init__(self, api_key: str, **kwargs):
-        super().__init__(api_key, **kwargs)
-        self.client = OpenAI(
-            api_key=self.api_key,
-            base_url=DEEPSEEK_BASE_URL,
-            max_retries=self.max_retries,
-        )
+    BASE_URL = DEEPSEEK_BASE_URL
+    PROVIDER = Provider.DEEPSEEK
+    CHAT_ENDPOINT = DEEPSEEK_CHAT_ENDPOINT
 
-    @property
-    def base_url(self) -> str:
-        return DEEPSEEK_BASE_URL
-
-    @property
-    def provider_name(self) -> Provider:
-        return Provider.DEEPSEEK
-
-    def get_endpoint(self, model: str | None = None) -> str:
-        return DEEPSEEK_CHAT_ENDPOINT
-
-    def transform_response(
-        self, response: Any, model: str | None = None
-    ) -> ChatCompletionResponse:
-        """Normalize DeepSeek-specific finish_reason values before OpenAI validation.
+    def transform_response(self, response: Any, model: str | None = None) -> ChatCompletionResponse:
+        """Normalize DeepSeek-specific finish_reason values before validation.
 
         ``deepseek-reasoner`` can emit ``insufficient_system_resource`` under
-        load — not a value in OpenAI's FinishReason enum, so plain pydantic
-        validation would drop the choice. We rewrite it via FINISH_REASON_MAP
-        (which maps it to STOP) before delegating to the standard parser.
+        load — not a value in OpenAI's FinishReason enum, so plain validation
+        would drop the choice. Rewrite it via FINISH_REASON_MAP first.
         """
         if hasattr(response, "model_dump"):
             data = response.model_dump()

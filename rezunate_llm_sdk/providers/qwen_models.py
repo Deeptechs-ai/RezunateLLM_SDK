@@ -8,7 +8,7 @@ the native Qwen provider.
 Reference: Alibaba Model Studio DashScope text-generation API.
 """
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 

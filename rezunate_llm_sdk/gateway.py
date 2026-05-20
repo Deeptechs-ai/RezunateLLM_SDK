@@ -2,6 +2,7 @@
 
 import logging
 import os
+from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from rezunate_llm_sdk.api import scan_text as _api_scan_text
 from rezunate_llm_sdk.client import RouterClient
 from rezunate_llm_sdk.guardrails import check_guardrails, load_guardrails
 from rezunate_llm_sdk.models import (
+    ChatCompletionChunk,
     ChatCompletionRequest,
     ChatCompletionResponse,
     GuardrailDirection,
@@ -54,22 +56,26 @@ def chat_complete(
     api_key: str,
     request: ChatCompletionRequest,
     guardrails_config: GuardrailsConfig | None = None,
-) -> ChatCompletionResponse:
+) -> ChatCompletionResponse | Iterator[ChatCompletionChunk]:
     """Execute chat completion with the specified provider.
+
+    When ``request.stream`` is true, returns an iterator of streaming
+    chunks instead of a single response. Output guardrails are applied
+    per chunk (log-only — no mid-stream blocking).
 
     Args:
         provider: Provider name ("openai", "anthropic", "google").
         api_key: API key for the provider.
-        request: Chat completion request.
+        request: Chat completion request. Set ``stream=True`` for streaming.
         guardrails_config: Optional guardrails configuration.
 
     Returns:
-        Chat completion response.
+        ``ChatCompletionResponse`` when ``request.stream`` is falsy, or
+        ``Iterator[ChatCompletionChunk]`` when ``request.stream`` is true.
 
     Raises:
         GuardrailsError: If content matches a block rule.
     """
-    # Use explicit config or try to load default
     config = guardrails_config if guardrails_config is not None else _get_automatic_config()
 
     if config:
@@ -78,15 +84,29 @@ def chat_complete(
                 logger.warning("GUARDRAIL %s [%s]: %s", v.action.name, v.direction.name, v)
 
     provider_instance = get_provider(provider, api_key, model=request.model)
-    response = provider_instance.chat_complete(request)
 
+    if request.stream:
+        return _iter_stream(provider_instance.stream(request), config)
+
+    response = provider_instance.chat_complete(request)
     if config:
         for choice in response.choices:
             if content := choice.message.content:
                 for v in check_guardrails(content, config, GuardrailDirection.OUTPUT):
                     logger.warning("GUARDRAIL %s [%s]: %s", v.action.name, v.direction.name, v)
-
     return response
+
+
+def _iter_stream(
+    chunks: Iterator[ChatCompletionChunk], config: GuardrailsConfig | None
+) -> Iterator[ChatCompletionChunk]:
+    for chunk in chunks:
+        if config:
+            for choice in chunk.choices:
+                if content := choice.delta.content:
+                    for v in check_guardrails(content, config, GuardrailDirection.OUTPUT):
+                        logger.warning("GUARDRAIL %s [%s]: %s", v.action.name, v.direction.name, v)
+        yield chunk
 
 
 def get_available_providers() -> list[Provider]:
@@ -124,6 +144,8 @@ class GuardrailsResource:
 
 class Gateway:
     """Gateway class with default provider and API key support.
+    Exposes a single ``chat_complete()`` entry point that handles both
+    streaming and non-streaming based on ``request.stream``.
 
     Attributes:
         default_provider: Default provider to use when not specified.
@@ -170,17 +192,21 @@ class Gateway:
         provider: str | Provider | None = None,
         api_key: str | None = None,
         guardrails_config: GuardrailsConfig | None = None,
-    ) -> ChatCompletionResponse:
-        """Execute chat completion.
+    ) -> ChatCompletionResponse | Iterator[ChatCompletionChunk]:
+        """Execute chat completion. Streams if ``request.stream`` is true.
 
         Args:
-            request: Chat completion request with model, messages, and parameters.
-            provider: Provider name (uses default if not specified).
-            api_key: API key (uses default if not specified).
-            guardrails_config: Optional guardrails config (uses instance default if not specified).
+            request: Chat completion request with model, messages, and
+                parameters. Set ``stream=True`` to receive an iterator of
+                ``ChatCompletionChunk`` objects instead of a single response.
+            provider: Provider name (uses ``default_provider`` if not specified).
+            api_key: API key (uses ``default_api_key`` if not specified).
+            guardrails_config: Optional guardrails config (uses instance
+                default if not specified).
 
         Returns:
-            Chat completion response in OpenAI format.
+            ``ChatCompletionResponse`` when ``request.stream`` is falsy, or
+            ``Iterator[ChatCompletionChunk]`` when ``request.stream`` is true.
 
         Raises:
             ValueError: If provider or api_key is not specified and no default is set.
