@@ -74,6 +74,8 @@ def chat_complete(
 
     if config:
         for msg in request.messages:
+            if not msg.content:
+                continue
             for v in check_guardrails(msg.content, config, GuardrailDirection.INPUT):
                 logger.warning("GUARDRAIL %s [%s]: %s", v.action.name, v.direction.name, v)
 
