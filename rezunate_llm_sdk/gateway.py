@@ -82,8 +82,11 @@ def chat_complete(
         for msg in request.messages:
             if not msg.content:
                 continue
-            for v in check_guardrails(msg.content, config, GuardrailDirection.INPUT):
+            redacted, violations = check_guardrails(msg.content, config, GuardrailDirection.INPUT)
+            for v in violations:
                 logger.warning("GUARDRAIL %s [%s]: %s", v.action.name, v.direction.name, v)
+            if redacted != msg.content:
+                msg.content = redacted
 
     provider_instance = get_provider(provider, api_key, model=request.model)
 
@@ -94,8 +97,12 @@ def chat_complete(
     if config:
         for choice in response.choices:
             if content := choice.message.content:
-                for v in check_guardrails(content, config, GuardrailDirection.OUTPUT):
+                redacted, violations = check_guardrails(content, config, GuardrailDirection.OUTPUT)
+                for v in violations:
                     logger.warning("GUARDRAIL %s [%s]: %s", v.action.name, v.direction.name, v)
+                if redacted != content:
+                    choice.message.content = redacted
+
     return response
 
 

@@ -44,6 +44,7 @@ class GuardrailAction(str, Enum):
 
     BLOCK = "block"
     FLAG = "flag"
+    REDACT = "redact"
 
 
 class GuardrailRule(BaseModel):
@@ -53,6 +54,8 @@ class GuardrailRule(BaseModel):
     pattern: str
     description: str = ""
     action: GuardrailAction = GuardrailAction.BLOCK
+    # Text that replaces each match when ``action`` is ``redact``.
+    replacement: str = "[REDACTED]"
 
 
 class GuardrailsConfig(BaseModel):

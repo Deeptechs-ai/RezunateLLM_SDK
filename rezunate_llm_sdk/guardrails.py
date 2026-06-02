@@ -64,8 +64,12 @@ def check_guardrails(
     text: str,
     config: GuardrailsConfig,
     direction: GuardrailDirection,
-) -> list[GuardrailViolation]:
-    """Check text against all guardrail rules.
+) -> tuple[str, list[GuardrailViolation]]:
+    """Check text against all guardrail rules and apply redactions.
+
+    Rules are evaluated in order. ``block`` rules raise immediately, ``flag``
+    rules only record a violation, and ``redact`` rules replace every match
+    with the rule's ``replacement`` text in the returned string.
 
     Args:
         text: The text to check.
@@ -73,30 +77,38 @@ def check_guardrails(
         direction: Either "input" or "output", for error reporting.
 
     Returns:
-        List of violations found.
+        A tuple of ``(redacted_text, violations)``. ``redacted_text`` equals
+        ``text`` when no ``redact`` rule matched.
 
     Raises:
         GuardrailsError: If any violation has action="block".
     """
-    violations = []
+    violations: list[GuardrailViolation] = []
+    redacted = text
 
     for rule in config.guardrails:
         match = re.search(rule.pattern, text)
-        if match:
-            violation = GuardrailViolation(
+        if not match:
+            continue
+
+        violations.append(
+            GuardrailViolation(
                 rule_name=rule.name,
                 rule_description=rule.description,
                 direction=direction,
                 action=rule.action,
                 match=match.group(0),
             )
-            violations.append(violation)
+        )
 
-            if rule.action == GuardrailAction.BLOCK:
-                raise GuardrailsError(
-                    rule_name=rule.name,
-                    rule_description=rule.description,
-                    direction=direction,
-                )
+        if rule.action == GuardrailAction.BLOCK:
+            raise GuardrailsError(
+                rule_name=rule.name,
+                rule_description=rule.description,
+                direction=direction,
+            )
 
-    return violations
+        if rule.action == GuardrailAction.REDACT:
+            redacted = re.sub(rule.pattern, rule.replacement, redacted)
+
+    return redacted, violations

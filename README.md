@@ -116,7 +116,7 @@ Provider-specific arguments (e.g. Google `top_k`, `safety_settings`, `tools`) ar
 
 ## Local Regex Guardrails (Free)
 
-Define regex patterns in YAML to block or flag sensitive content in both user inputs and model outputs. Everything is free and runs client-side — no RezunateLLM account needed, no data leaves your machine.
+Define regex patterns in YAML to **block**, **flag**, or **redact** sensitive content (PII or anything custom) in both user inputs and model outputs. Everything is free and runs client-side — no RezunateLLM account needed, no data leaves your machine.
 
 Create a config file:
 
@@ -128,10 +128,12 @@ guardrails:
     description: "Block Social Security Numbers"
     action: block
 
-  - name: block-email
+  # Redact PII instead of blocking the whole request/response.
+  - name: redact-email
     pattern: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-    description: "Block email addresses"
-    action: block
+    description: "Redact email addresses"
+    action: redact
+    replacement: "[EMAIL]"
 
   - name: flag-credit-card
     pattern: '\b(?:\d[ -]*?){13,16}\b'
@@ -143,7 +145,11 @@ Each rule needs:
 - `name` — identifier
 - `pattern` — regex to match
 - `description` — human-readable description
-- `action` — `block` (raises `GuardrailsError`) or `flag` (returns a violation, allows the request)
+- `action` — one of:
+  - `block` — raises `GuardrailsError`, stopping the request (input) or response (output)
+  - `flag` — records a violation and logs it, but lets the content through unchanged
+  - `redact` — replaces every match with `replacement` (defaults to `[REDACTED]`) in both the prompt sent to the provider and the model's response
+- `replacement` — text substituted for each match when `action: redact` (optional; defaults to `[REDACTED]`)
 
 Use it in two ways:
 
@@ -171,16 +177,19 @@ export GUARDRAILS_FILE_PATH=path/to/guardrails.yaml
 
 When set, the SDK loads the file once and applies the rules on every `chat_complete` call without explicit wiring.
 
-You can also call the checker directly:
+You can also call the checker directly. `check_guardrails` returns a `(redacted_text, violations)` tuple and raises `GuardrailsError` on a `block` rule:
 
 ```python
 from rezunate_llm_sdk import GuardrailsError, check_guardrails, load_guardrails
 from rezunate_llm_sdk.models import GuardrailDirection
 
-config = load_guardrails("guardrails.yaml")
+config = load_guardrails("guardrails.yaml")  # with a redact rule for emails
 try:
-    violations = check_guardrails("My SSN is 123-45-6789", config, GuardrailDirection.INPUT)
-    # 'flag' rules return here; 'block' rules raise GuardrailsError
+    redacted, violations = check_guardrails(
+        "Email me at alex@example.com", config, GuardrailDirection.OUTPUT
+    )
+    print(redacted)  # -> "Email me at [EMAIL]"  (redact rules applied)
+    # 'flag' rules show up in `violations`; 'block' rules raise GuardrailsError
 except GuardrailsError as e:
     print(f"Blocked by rule '{e.rule_name}' on {e.direction.name}")
 ```
