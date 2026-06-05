@@ -8,6 +8,7 @@ from rezunate_llm_sdk.client import RouterAPIError, RouterClient
 from rezunate_llm_sdk.gateway import Gateway, chat_complete, get_available_providers
 from rezunate_llm_sdk.guardrails import (
     GuardrailsError,
+    ServerGuardrailsError,
     check_guardrails,
     load_guardrails,
 )
@@ -51,6 +52,7 @@ __all__ = [
     "RouterClient",
     "RouterAPIError",
     "GuardrailsError",
+    "ServerGuardrailsError",
     "GuardrailsConfig",
     "GuardrailRule",
     "load_guardrails",

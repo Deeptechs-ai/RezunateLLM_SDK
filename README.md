@@ -215,6 +215,33 @@ print("blocked:", result.blocked)   # whether the request was blocked
 print("text:",    result.text)      # processed text (e.g. with PII redacted)
 ```
 
+#### Automatic PII guardrails on LLM output
+
+Set `server_guardrails=True` and the Gateway scans every `chat_complete` **response** with the hosted PII service, applying the workspace config automatically:
+
+- if the scan **blocks** the output → raises `ServerGuardrailsError`
+- if the scan **redacts** it → the response content is replaced with the server's redacted text
+- detected entities are logged either way
+
+```python
+from rezunate_llm_sdk import Gateway, ServerGuardrailsError
+
+gateway = Gateway(
+    default_provider="openai",
+    default_api_key="your-openai-key",
+    server_guardrails=True,                       # scan output via hosted PII service
+    REZUNATE_LLM_API_KEY="your-rezunate-api-key",
+)
+
+try:
+    response = gateway.chat_complete(request)
+    print(response.choices[0].message.content)    # PII redacted by the server
+except ServerGuardrailsError as e:
+    print(f"Output blocked — detected {[ent.label for ent in e.entities]}")
+```
+
+You can also toggle it per call: `gateway.chat_complete(request, server_guardrails=True)`. This runs alongside (and after) any local regex guardrails.
+
 ### Prompt Management
 
 Fetch and render prompts stored on Rezunate LLM. Pin to a specific version, or omit `version` to use the current one. Variables are interpolated into the template before returning.

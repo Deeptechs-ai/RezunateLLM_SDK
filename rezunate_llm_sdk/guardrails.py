@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 
 from rezunate_llm_sdk.models import (
+    DetectedEntity,
     GuardrailAction,
     GuardrailDirection,
     GuardrailsConfig,
@@ -14,7 +15,7 @@ from rezunate_llm_sdk.models import (
 
 
 class GuardrailsError(Exception):
-    """Raised when content matches a guardrail rule."""
+    """Raised when content matches a local regex guardrail rule."""
 
     def __init__(
         self, rule_name: str, rule_description: str, direction: GuardrailDirection
@@ -25,6 +26,28 @@ class GuardrailsError(Exception):
         super().__init__(
             f"Guardrail '{rule_name}' triggered on {direction.name}: {rule_description}"
         )
+
+
+class ServerGuardrailsError(Exception):
+    """Raised when the server-side PII scan blocks content.
+
+    Attributes:
+        direction: Whether the blocked content was input or output.
+        entities: PII entities the scan detected.
+        action: The action label the server returned (e.g. "block").
+    """
+
+    def __init__(
+        self,
+        direction: GuardrailDirection,
+        entities: list[DetectedEntity],
+        action: str,
+    ) -> None:
+        self.direction = direction
+        self.entities = entities
+        self.action = action
+        labels = ", ".join(sorted({e.label for e in entities})) or "PII"
+        super().__init__(f"Server guardrail blocked {direction.name}: detected {labels}")
 
 
 def load_guardrails(config_path: str | Path) -> GuardrailsConfig:
