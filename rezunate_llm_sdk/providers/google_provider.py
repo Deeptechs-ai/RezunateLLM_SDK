@@ -317,4 +317,3 @@ def _translate_tool_choice(
             )
         )
     return None
-

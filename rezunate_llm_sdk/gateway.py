@@ -24,6 +24,7 @@ from rezunate_llm_sdk.models import (
     GuardrailsConfig,
     Provider,
     ScanResponse,
+    ServerGuardrailsConfig,
 )
 from rezunate_llm_sdk.prompts import render_prompt
 from rezunate_llm_sdk.providers import get_provider, list_providers
@@ -164,8 +165,8 @@ class Gateway:
         default_provider: Default provider to use when not specified.
         default_api_key: Default API key to use when not specified.
         guardrails_config: Optional guardrails configuration for content filtering.
-        server_guardrails: When True, run the hosted PII scan on LLM output and
-            block or redact it based on the workspace guardrail config.
+        server_guardrails: Enable the hosted PII scan. ``True`` scans both input
+            and output; pass a ``ServerGuardrailsConfig`` to scan only one side.
         guardrails: Server-side PII detection resource.
     """
 
@@ -174,7 +175,7 @@ class Gateway:
         default_provider: Provider | str | None = None,
         default_api_key: str | None = None,
         guardrails_config: GuardrailsConfig | None = None,
-        server_guardrails: bool = False,
+        server_guardrails: bool | ServerGuardrailsConfig = False,
         REZUNATE_LLM_API_KEY: str | None = None,
     ) -> None:
         """Initialize Gateway.
@@ -211,6 +212,7 @@ class Gateway:
         provider: str | Provider | None = None,
         api_key: str | None = None,
         guardrails_config: GuardrailsConfig | None = None,
+        server_guardrails: bool | ServerGuardrailsConfig | None = None,
     ) -> ChatCompletionResponse | Iterator[ChatCompletionChunk]:
         """Execute chat completion. Streams if ``request.stream`` is true.
 
@@ -220,8 +222,10 @@ class Gateway:
                 ``ChatCompletionChunk`` objects instead of a single response.
             provider: Provider name (uses ``default_provider`` if not specified).
             api_key: API key (uses ``default_api_key`` if not specified).
-            guardrails_config: Optional guardrails config (uses instance
-                default if not specified).
+            guardrails_config: Optional guardrails config.
+            server_guardrails: Override the instance ``server_guardrails`` setting
+                for this call. ``True`` scans both input and output with the
+                hosted PII service.
 
         Returns:
             ``ChatCompletionResponse`` when ``request.stream`` is falsy, or
@@ -230,17 +234,28 @@ class Gateway:
         Raises:
             ValueError: If provider or api_key is not specified and no default is set.
             GuardrailsError: If input or output content matches a local regex rule.
-            ServerGuardrailsError: If the hosted PII scan blocks the output.
+            ServerGuardrailsError: If the hosted PII scan blocks input or output.
         """
         resolved_provider = provider or self.default_provider
         resolved_api_key = api_key or self.default_api_key
         resolved_guardrails = guardrails_config or self.guardrails_config
-        resolved_server = self.server_guardrails if server_guardrails is None else server_guardrails
+        server = self.server_guardrails if server_guardrails is None else server_guardrails
+        # True -> scan both sides; a config picks the side(s); False/None -> off.
+        server_config = (
+            (server if isinstance(server, ServerGuardrailsConfig) else ServerGuardrailsConfig())
+            if server
+            else None
+        )
 
         if not resolved_provider:
             raise ValueError("Provider must be specified")
         if not resolved_api_key:
             raise ValueError("API key must be specified")
+
+        if server_config and GuardrailDirection.INPUT in server_config.directions:
+            for msg in request.messages:
+                if msg.content:
+                    msg.content = self._server_scan(msg.content, GuardrailDirection.INPUT)
 
         response = chat_complete(
             provider=resolved_provider,
@@ -249,44 +264,44 @@ class Gateway:
             guardrails_config=resolved_guardrails,
         )
 
-        if resolved_server:
-            self._apply_server_guardrails(response)
+        if server_config and GuardrailDirection.OUTPUT in server_config.directions:
+            for choice in response.choices:
+                if choice.message.content:
+                    choice.message.content = self._server_scan(
+                        choice.message.content, GuardrailDirection.OUTPUT
+                    )
 
         return response
 
-    def _apply_server_guardrails(self, response: ChatCompletionResponse) -> None:
-        """Scan each output choice with the hosted PII service and apply its action.
-
-        Blocks the response if the scan flags it, otherwise replaces the content
-        with the server-redacted text. Detected entities are logged either way.
+    def _server_scan(self, text: str, direction: GuardrailDirection) -> str:
+        """Scan one piece of text with the hosted PII service and apply its action.
 
         Args:
-            response: The provider response, mutated in place.
+            text: The input or output text to scan.
+            direction: Which side this text is, for error reporting/logging.
+
+        Returns:
+            The text, redacted by the server if PII was found, or unchanged.
 
         Raises:
-            ServerGuardrailsError: If the scan blocks any choice.
+            ServerGuardrailsError: If the scan blocks the text.
         """
-        for choice in response.choices:
-            content = choice.message.content
-            if not content:
-                continue
+        result = self.guardrails.scan(text)
+        for ent in result.entities:
+            logger.warning(
+                "SERVER GUARDRAIL [%s]: %s %r (score=%.2f)",
+                direction.name,
+                ent.label,
+                ent.text,
+                ent.score,
+            )
 
-            result = self.guardrails.scan(content)
-            for ent in result.entities:
-                logger.warning(
-                    "SERVER GUARDRAIL [OUTPUT]: %s %r (score=%.2f)",
-                    ent.label,
-                    ent.text,
-                    ent.score,
-                )
+        if result.blocked:
+            raise ServerGuardrailsError(direction, result.entities, result.action)
 
-            if result.blocked:
-                raise ServerGuardrailsError(
-                    GuardrailDirection.OUTPUT, result.entities, result.action
-                )
-
-            if result.text and result.text != content:
-                choice.message.content = result.text
+        if result.text and result.text != text:
+            return result.text
+        return text
 
     def get_prompt(
         self,

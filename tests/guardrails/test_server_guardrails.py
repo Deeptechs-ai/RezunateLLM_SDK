@@ -10,7 +10,7 @@ import responses
 import rezunate_llm_sdk.constants as constants
 from rezunate_llm_sdk.gateway import ChatCompletionRequest, Gateway
 from rezunate_llm_sdk.guardrails import ServerGuardrailsError
-from rezunate_llm_sdk.models import GuardrailsConfig
+from rezunate_llm_sdk.models import GuardrailsConfig, ServerGuardrailsConfig
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 SCAN_URL = f"{constants.ROUTER_BASE_URL}/api/v1/guardrails/scan"
@@ -42,14 +42,18 @@ def _scan_response(*, entities=None, action="none", blocked=False, text="") -> d
     }
 
 
-def _gateway() -> Gateway:
+def _gateway(server_guardrails=True) -> Gateway:
     return Gateway(
         default_provider="anthropic",
         default_api_key="anthropic-key",
         guardrails_config=NO_LOCAL_RULES,
-        server_guardrails=True,
+        server_guardrails=server_guardrails,
         REZUNATE_LLM_API_KEY=ROUTER_KEY,
     )
+
+
+# Scan only the output side, for tests that target output behaviour in isolation.
+OUTPUT_ONLY = ServerGuardrailsConfig(directions=("output",))
 
 
 def _request() -> ChatCompletionRequest:
@@ -85,10 +89,10 @@ class TestServerOutputRedaction:
             status=200,
         )
 
-        result = _gateway().chat_complete(_request())
+        result = _gateway(OUTPUT_ONLY).chat_complete(_request())
 
         assert result.choices[0].message.content == "Her email is [EMAIL]."
-        # Provider call + scan call.
+        # Provider call + one (output) scan call.
         assert len(responses.calls) == 2
 
     @responses.activate
@@ -174,3 +178,59 @@ class TestServerOutputRedaction:
         result = gateway.chat_complete(_request(), server_guardrails=True)
 
         assert result.choices[0].message.content == "Her email is [EMAIL]."
+
+
+class TestServerDirections:
+    """`directions` chooses which side(s) the scan runs on; True = both."""
+
+    @responses.activate
+    def test_true_scans_both_input_and_output(self, mock_api_key):
+        responses.add(
+            responses.POST, ANTHROPIC_URL, json=_anthropic_response_with("ok"), status=200
+        )
+        responses.add(
+            responses.POST,
+            SCAN_URL,
+            json=_scan_response(action="redact", text="[CLEAN]"),
+            status=200,
+        )
+
+        request = ChatCompletionRequest(
+            model="claude-sonnet-4-20250514",
+            messages=[{"role": "user", "content": "My email is maria@example.com"}],
+            max_tokens=100,
+        )
+        _gateway(server_guardrails=True).chat_complete(request)
+
+        # Provider + input scan + output scan = 3 calls.
+        scan_calls = [c for c in responses.calls if "guardrails/scan" in c.request.url]
+        assert len(scan_calls) == 2
+
+    @responses.activate
+    def test_input_only_scans_prompt_not_output(self, mock_api_key):
+        responses.add(
+            responses.POST,
+            ANTHROPIC_URL,
+            json=_anthropic_response_with("Output email bob@example.com"),
+            status=200,
+        )
+        responses.add(
+            responses.POST,
+            SCAN_URL,
+            json=_scan_response(action="redact", text="My email is [EMAIL]"),
+            status=200,
+        )
+
+        request = ChatCompletionRequest(
+            model="claude-sonnet-4-20250514",
+            messages=[{"role": "user", "content": "My email is maria@example.com"}],
+            max_tokens=100,
+        )
+        result = _gateway(ServerGuardrailsConfig(directions=("input",))).chat_complete(request)
+
+        # Prompt was scanned/redacted before sending; output left untouched.
+        provider_call = next(c for c in responses.calls if "anthropic" in c.request.url)
+        assert "maria@example.com" not in provider_call.request.body.decode("utf-8")
+        assert result.choices[0].message.content == "Output email bob@example.com"
+        scan_calls = [c for c in responses.calls if "guardrails/scan" in c.request.url]
+        assert len(scan_calls) == 1

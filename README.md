@@ -110,8 +110,70 @@ ChatCompletionRequest(
 )
 ```
 
-Provider-specific arguments (e.g. Google `top_k`, `safety_settings`, `tools`) are accepted as extra fields and forwarded by each provider's transformer.
+Provider-specific arguments (e.g. Google `top_k`, `safety_settings`) are accepted as extra fields and forwarded by each provider's transformer.
 
+## Tool Calling
+
+Define tools in OpenAI format and the SDK translates them to each provider's native shape (Anthropic `tool_use`, Google `functionCall`) and normalizes the response back to OpenAI `tool_calls`. The same code works across OpenAI, Anthropic, and Google.
+
+```python
+from rezunate_llm_sdk import ChatCompletionRequest, Gateway, Message
+
+gateway = Gateway(default_provider="anthropic", default_api_key="your-anthropic-key")
+
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Look up the current weather for a city",
+            "parameters": {
+                "type": "object",
+                "properties": {"city": {"type": "string"}},
+                "required": ["city"],
+            },
+        },
+    }
+]
+
+messages = [Message(role="user", content="What's the weather in Tokyo?")]
+
+response = gateway.chat_complete(
+    ChatCompletionRequest(
+        model="claude-sonnet-4-5",
+        messages=messages,
+        tools=tools,
+        tool_choice="auto",   # "auto" | "required" | "none" | {"type": "function", "function": {"name": "get_weather"}}
+        max_tokens=300,
+    )
+)
+
+choice = response.choices[0]
+if choice.finish_reason == "tool_calls":
+    call = choice.message.tool_calls[0]
+    print(call.function.name)       # "get_weather"
+    print(call.function.arguments)  # '{"city": "Tokyo"}'  (a JSON string)
+```
+
+Run the tool, then send the result back as a `tool` message to get the final answer:
+
+```python
+import json
+
+args = json.loads(call.function.arguments)
+result = f"Sunny, 22C in {args['city']}"   # your real tool goes here
+
+messages += [
+    Message(role="assistant", tool_calls=choice.message.tool_calls),
+    Message(role="tool", content=result, tool_call_id=call.id),
+    # For Google, also set name=call.function.name on the tool message.
+]
+
+final = gateway.chat_complete(
+    ChatCompletionRequest(model="claude-sonnet-4-5", messages=messages, tools=tools, max_tokens=300)
+)
+print(final.choices[0].message.content)
+```
 
 
 ## Local Regex Guardrails (Free)
@@ -215,12 +277,12 @@ print("blocked:", result.blocked)   # whether the request was blocked
 print("text:",    result.text)      # processed text (e.g. with PII redacted)
 ```
 
-#### Automatic PII guardrails on LLM output
+#### Automatic PII guardrails on input and output
 
-Set `server_guardrails=True` and the Gateway scans every `chat_complete` **response** with the hosted PII service, applying the workspace config automatically:
+Set `server_guardrails=True` and the Gateway scans every `chat_complete` call with the hosted PII service, applying the workspace config automatically:
 
-- if the scan **blocks** the output → raises `ServerGuardrailsError`
-- if the scan **redacts** it → the response content is replaced with the server's redacted text
+- if the scan **blocks** the content → raises `ServerGuardrailsError`
+- if the scan **redacts** it → the content is replaced with the server's redacted text (the prompt before it's sent, or the response after)
 - detected entities are logged either way
 
 ```python
@@ -229,7 +291,7 @@ from rezunate_llm_sdk import Gateway, ServerGuardrailsError
 gateway = Gateway(
     default_provider="openai",
     default_api_key="your-openai-key",
-    server_guardrails=True,                       # scan output via hosted PII service
+    server_guardrails=True,                       # scan input AND output via hosted PII service
     REZUNATE_LLM_API_KEY="your-rezunate-api-key",
 )
 
@@ -237,10 +299,30 @@ try:
     response = gateway.chat_complete(request)
     print(response.choices[0].message.content)    # PII redacted by the server
 except ServerGuardrailsError as e:
-    print(f"Output blocked — detected {[ent.label for ent in e.entities]}")
+    print(f"Blocked on {e.direction.name} — detected {[ent.label for ent in e.entities]}")
 ```
 
-You can also toggle it per call: `gateway.chat_complete(request, server_guardrails=True)`. This runs alongside (and after) any local regex guardrails.
+**Choosing which side to scan.** `True` scans both the prompt (input) and the model response (output). To scan only one side, pass a `ServerGuardrailsConfig` with `directions`:
+
+```python
+from rezunate_llm_sdk import Gateway, ServerGuardrailsConfig
+
+gateway = Gateway(
+    default_provider="openai",
+    default_api_key="your-openai-key",
+    server_guardrails=ServerGuardrailsConfig(directions=("output",)),  # output only
+    REZUNATE_LLM_API_KEY="your-rezunate-api-key",
+)
+```
+
+| `server_guardrails` value | Scans |
+|---|---|
+| `True` | input **and** output |
+| `ServerGuardrailsConfig(directions=("input",))` | input only |
+| `ServerGuardrailsConfig(directions=("output",))` | output only |
+| `False` (default) | nothing |
+
+You can also override it per call: `gateway.chat_complete(request, server_guardrails=...)`. This runs alongside any local regex guardrails.
 
 ### Prompt Management
 

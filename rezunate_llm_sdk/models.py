@@ -64,6 +64,23 @@ class GuardrailsConfig(BaseModel):
     guardrails: list[GuardrailRule]
 
 
+class ServerGuardrailsConfig(BaseModel):
+    """Options for the hosted PII scan.
+
+    Pass this to ``Gateway(server_guardrails=...)`` instead of ``True`` to
+    choose which side(s) the scan runs on.
+
+    Attributes:
+        directions: Which sides the scan runs on. Defaults to both input and
+            output; set to e.g. ``("output",)`` to scan only model output.
+    """
+
+    directions: tuple[GuardrailDirection, ...] = (
+        GuardrailDirection.INPUT,
+        GuardrailDirection.OUTPUT,
+    )
+
+
 class GuardrailViolation(BaseModel):
     """A single guardrail violation."""
 

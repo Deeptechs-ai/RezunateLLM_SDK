@@ -278,6 +278,7 @@ class TestQwenIntegration:
         provider.chat_complete(req)
 
         import json
+
         body = json.loads(responses.calls[0].request.body)
         assert body["model"] == "qwen-plus"
         assert "input" in body
