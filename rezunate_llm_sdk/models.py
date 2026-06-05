@@ -6,6 +6,7 @@ Defines request and response models following OpenAI format as the universal sta
 
 from datetime import datetime
 from enum import Enum
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -24,6 +25,7 @@ class Role(str, Enum):
     SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
+    TOOL = "tool"
 
 
 class GuardrailDirection(str, Enum):
@@ -65,11 +67,65 @@ class GuardrailViolation(BaseModel):
     match: str
 
 
+class FunctionCall(BaseModel):
+    """OpenAI-shaped function-call payload inside a tool call."""
+
+    name: str
+    arguments: str = ""
+
+
+class ToolCall(BaseModel):
+    """A tool/function call requested by the assistant.
+
+    Wire format mirrors OpenAI's ``chat.completions.message.tool_calls[*]`` so it
+    serializes cleanly to OpenAI and can be translated to Anthropic ``tool_use``
+    and Google ``functionCall`` parts inside the provider transformers.
+    """
+
+    id: str
+    type: Literal["function"] = "function"
+    function: FunctionCall
+
+
+class FunctionDefinition(BaseModel):
+    """OpenAI-shaped tool function definition (sent on the request side)."""
+
+    name: str
+    description: str | None = None
+    # Caller-supplied JSON Schema document.
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class Tool(BaseModel):
+    """OpenAI-shaped tool entry passed in ``ChatCompletionRequest.tools``."""
+
+    type: Literal["function"] = "function"
+    function: FunctionDefinition
+
+
+class ToolChoiceFunction(BaseModel):
+    """Inner ``function`` block of a ``tool_choice`` selecting a specific tool."""
+
+    name: str
+
+
+class ToolChoiceOption(BaseModel):
+    """Structured ``tool_choice`` payload selecting a specific function."""
+
+    type: Literal["function"] = "function"
+    function: ToolChoiceFunction
+
+
 class Message(BaseModel):
     """A chat message."""
 
     role: Role
-    content: str
+    content: str | None = None
+    name: str | None = None
+    tool_call_id: str | None = None
+    tool_calls: list[ToolCall] | None = None
+
+    model_config = {"extra": "allow"}
 
 
 class ChatCompletionRequest(BaseModel):
@@ -86,6 +142,8 @@ class ChatCompletionRequest(BaseModel):
     n: int | None = None
     stream: bool | None = None
     user: str | None = None
+    tools: list[Tool] | None = None
+    tool_choice: Literal["auto", "required", "none"] | ToolChoiceOption | None = None
 
     model_config = {"extra": "allow"}
 
@@ -137,6 +195,7 @@ class ResponseMessage(BaseModel):
 
     role: Role = Role.ASSISTANT
     content: str | None = None
+    tool_calls: list[ToolCall] | None = None
 
 
 class Choice(BaseModel):
