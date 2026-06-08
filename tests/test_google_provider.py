@@ -151,20 +151,31 @@ class TestGoogleTransformRequest:
 
         assert result.safetySettings == safety_settings
 
-    def test_tools_passed_through(self, mock_api_key):
-        """Test tools are passed through."""
+    def test_tools_translated_to_function_declarations(self, mock_api_key):
+        """OpenAI-shaped tools are translated into Gemini's functionDeclarations."""
         provider = GoogleProvider(api_key=mock_api_key)
-        tools = [{"function_declarations": [{"name": "get_weather"}]}]
         openai_request = {
             "model": "gemini-2.0-flash",
             "messages": [{"role": "user", "content": "Hello!"}],
-            "tools": tools,
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "description": "Look up weather",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ],
         }
         req_obj = ChatCompletionRequest.model_validate(openai_request)
 
         result = provider.transform_request(req_obj)
 
-        assert result.tools == tools
+        assert result.tools is not None and len(result.tools) == 1
+        decl = result.tools[0].functionDeclarations[0]
+        assert decl.name == "get_weather"
+        assert decl.description == "Look up weather"
 
 
 class TestGoogleTransformResponse:

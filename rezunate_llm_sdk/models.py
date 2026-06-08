@@ -1,11 +1,12 @@
 """
-Pydantic models for LLM Router.
+Pydantic models for Rezunate LLM.
 
 Defines request and response models following OpenAI format as the universal standard.
 """
 
 from datetime import datetime
 from enum import Enum
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +17,10 @@ class Provider(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GOOGLE = "google"
+    GROK = "grok"
+    LLAMA = "llama"
+    DEEPSEEK = "deepseek"
+    QWEN = "qwen"
 
 
 class Role(str, Enum):
@@ -24,6 +29,7 @@ class Role(str, Enum):
     SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
+    TOOL = "tool"
 
 
 class GuardrailDirection(str, Enum):
@@ -38,6 +44,7 @@ class GuardrailAction(str, Enum):
 
     BLOCK = "block"
     FLAG = "flag"
+    REDACT = "redact"
 
 
 class GuardrailRule(BaseModel):
@@ -47,12 +54,31 @@ class GuardrailRule(BaseModel):
     pattern: str
     description: str = ""
     action: GuardrailAction = GuardrailAction.BLOCK
+    # Text that replaces each match when ``action`` is ``redact``.
+    replacement: str = "[REDACTED]"
 
 
 class GuardrailsConfig(BaseModel):
     """Configuration holding a list of guardrail rules."""
 
     guardrails: list[GuardrailRule]
+
+
+class ServerGuardrailsConfig(BaseModel):
+    """Options for the hosted PII scan.
+
+    Pass this to ``Gateway(server_guardrails=...)`` instead of ``True`` to
+    choose which side(s) the scan runs on.
+
+    Attributes:
+        directions: Which sides the scan runs on. Defaults to both input and
+            output; set to e.g. ``("output",)`` to scan only model output.
+    """
+
+    directions: tuple[GuardrailDirection, ...] = (
+        GuardrailDirection.INPUT,
+        GuardrailDirection.OUTPUT,
+    )
 
 
 class GuardrailViolation(BaseModel):
@@ -65,11 +91,65 @@ class GuardrailViolation(BaseModel):
     match: str
 
 
+class FunctionCall(BaseModel):
+    """OpenAI-shaped function-call payload inside a tool call."""
+
+    name: str
+    arguments: str = ""
+
+
+class ToolCall(BaseModel):
+    """A tool/function call requested by the assistant.
+
+    Wire format mirrors OpenAI's ``chat.completions.message.tool_calls[*]`` so it
+    serializes cleanly to OpenAI and can be translated to Anthropic ``tool_use``
+    and Google ``functionCall`` parts inside the provider transformers.
+    """
+
+    id: str
+    type: Literal["function"] = "function"
+    function: FunctionCall
+
+
+class FunctionDefinition(BaseModel):
+    """OpenAI-shaped tool function definition (sent on the request side)."""
+
+    name: str
+    description: str | None = None
+    # Caller-supplied JSON Schema document.
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class Tool(BaseModel):
+    """OpenAI-shaped tool entry passed in ``ChatCompletionRequest.tools``."""
+
+    type: Literal["function"] = "function"
+    function: FunctionDefinition
+
+
+class ToolChoiceFunction(BaseModel):
+    """Inner ``function`` block of a ``tool_choice`` selecting a specific tool."""
+
+    name: str
+
+
+class ToolChoiceOption(BaseModel):
+    """Structured ``tool_choice`` payload selecting a specific function."""
+
+    type: Literal["function"] = "function"
+    function: ToolChoiceFunction
+
+
 class Message(BaseModel):
     """A chat message."""
 
     role: Role
-    content: str
+    content: str | None = None
+    name: str | None = None
+    tool_call_id: str | None = None
+    tool_calls: list[ToolCall] | None = None
+
+    model_config = {"extra": "allow"}
 
 
 class ChatCompletionRequest(BaseModel):
@@ -86,6 +166,8 @@ class ChatCompletionRequest(BaseModel):
     n: int | None = None
     stream: bool | None = None
     user: str | None = None
+    tools: list[Tool] | None = None
+    tool_choice: Literal["auto", "required", "none"] | ToolChoiceOption | None = None
 
     model_config = {"extra": "allow"}
 
@@ -109,11 +191,15 @@ class FinishReason(str, Enum):
 
 # Centralized mapping for all provider-specific finish reasons
 FINISH_REASON_MAP: dict[str, FinishReason] = {
-    # OpenAI (passthrough)
+    # OpenAI-style values — also emitted by xAI (Grok), DeepSeek,
+    # Qwen native (DashScope, result_format="message"), and Llama native (Meta).
+    # All five providers use the same lowercase vocabulary.
     "stop": FinishReason.STOP,
     "length": FinishReason.LENGTH,
     "content_filter": FinishReason.CONTENT_FILTER,
     "tool_calls": FinishReason.TOOL_CALLS,
+    # DeepSeek-specific — returned by deepseek-reasoner under resource pressure
+    "insufficient_system_resource": FinishReason.STOP,
     # Google Gemini
     "STOP": FinishReason.STOP,
     "MAX_TOKENS": FinishReason.LENGTH,
@@ -137,6 +223,7 @@ class ResponseMessage(BaseModel):
 
     role: Role = Role.ASSISTANT
     content: str | None = None
+    tool_calls: list[ToolCall] | None = None
 
 
 class Choice(BaseModel):
@@ -169,6 +256,34 @@ class ChatCompletionResponse(BaseModel):
     error: ErrorInfo | None = None
 
 
+class ChoiceDelta(BaseModel):
+    """Incremental delta for a streaming choice (OpenAI chunk shape)."""
+
+    role: Role | None = None
+    content: str | None = None
+
+
+class ChoiceChunk(BaseModel):
+    """A single choice in a streaming chat completion chunk."""
+
+    index: int = 0
+    delta: ChoiceDelta = Field(default_factory=ChoiceDelta)
+    finish_reason: FinishReason | None = None
+
+
+class ChatCompletionChunk(BaseModel):
+    """One chunk of a streaming chat completion in OpenAI format."""
+
+    id: str | None = None
+    object: str = "chat.completion.chunk"
+    created: int = 0
+    model: str | None = None
+    choices: list[ChoiceChunk] = Field(default_factory=list)
+    usage: Usage | None = None
+    provider: Provider | None = None
+    error: ErrorInfo | None = None
+
+
 class DetectedEntity(BaseModel):
     """A single PII entity detected by the guardrail service."""
 
@@ -189,7 +304,7 @@ class ScanResponse(BaseModel):
 
 
 class PromptResponse(BaseModel):
-    """Prompt returned by the LLM-Router API."""
+    """Prompt returned by the Rezunate LLM API."""
 
     slug_id: str
     name: str

@@ -75,11 +75,67 @@ class GoogleFactory(ProviderFactory):
         return GoogleProvider(api_key=api_key, **kwargs)
 
 
+class GrokFactory(ProviderFactory):
+    """Factory for creating Grok (xAI) provider instances."""
+
+    @property
+    def provider_name(self) -> Provider:
+        return Provider.GROK
+
+    def create_provider(self, api_key: str, **kwargs) -> BaseProvider:
+        from rezunate_llm_sdk.providers.grok_provider import GrokProvider
+
+        return GrokProvider(api_key=api_key, **kwargs)
+
+
+class LlamaFactory(ProviderFactory):
+    """Factory for creating Llama (Meta) provider instances."""
+
+    @property
+    def provider_name(self) -> Provider:
+        return Provider.LLAMA
+
+    def create_provider(self, api_key: str, **kwargs) -> BaseProvider:
+        from rezunate_llm_sdk.providers.llama_provider import LlamaProvider
+
+        return LlamaProvider(api_key=api_key, **kwargs)
+
+
+class DeepSeekFactory(ProviderFactory):
+    """Factory for creating DeepSeek provider instances."""
+
+    @property
+    def provider_name(self) -> Provider:
+        return Provider.DEEPSEEK
+
+    def create_provider(self, api_key: str, **kwargs) -> BaseProvider:
+        from rezunate_llm_sdk.providers.deepseek_provider import DeepSeekProvider
+
+        return DeepSeekProvider(api_key=api_key, **kwargs)
+
+
+class QwenFactory(ProviderFactory):
+    """Factory for creating Qwen (Alibaba) provider instances."""
+
+    @property
+    def provider_name(self) -> Provider:
+        return Provider.QWEN
+
+    def create_provider(self, api_key: str, **kwargs) -> BaseProvider:
+        from rezunate_llm_sdk.providers.qwen_provider import QwenProvider
+
+        return QwenProvider(api_key=api_key, **kwargs)
+
+
 # Factory Registry - maps provider names to factory instances
 FACTORY_REGISTRY: dict[Provider, ProviderFactory] = {
     Provider.OPENAI: OpenAIFactory(),
     Provider.ANTHROPIC: AnthropicFactory(),
     Provider.GOOGLE: GoogleFactory(),
+    Provider.GROK: GrokFactory(),
+    Provider.LLAMA: LlamaFactory(),
+    Provider.DEEPSEEK: DeepSeekFactory(),
+    Provider.QWEN: QwenFactory(),
 }
 
 

@@ -121,6 +121,103 @@ def google_response():
 
 
 @pytest.fixture
+def grok_response():
+    """Return a sample xAI (Grok) chat completion response — OpenAI-shaped."""
+    return {
+        "id": "chatcmpl-grok-123",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "grok-3-mini",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "Hello! How can I assist you today?",
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "total_tokens": 30,
+        },
+    }
+
+
+@pytest.fixture
+def deepseek_response():
+    """Return a sample DeepSeek chat completion response — OpenAI-shaped."""
+    return {
+        "id": "chatcmpl-deepseek-123",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "deepseek-chat",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "Hello! How can I assist you today?",
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "total_tokens": 30,
+        },
+    }
+
+
+@pytest.fixture
+def qwen_response():
+    """Return a sample DashScope (native Qwen) API response."""
+    return {
+        "output": {
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {
+                        "role": "assistant",
+                        "content": "Hello! How can I assist you today?",
+                    },
+                }
+            ]
+        },
+        "usage": {
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "total_tokens": 30,
+        },
+        "request_id": "req-test-123",
+    }
+
+
+@pytest.fixture
+def llama_response():
+    """Return a sample Meta Llama (native) API response."""
+    return {
+        "id": "msg-test-123",
+        "completion_message": {
+            "role": "assistant",
+            "content": {
+                "type": "text",
+                "text": "Hello! How can I assist you today?",
+            },
+            "stop_reason": "stop",
+        },
+        "metrics": [
+            {"metric": "num_prompt_tokens", "value": 10, "unit": "tokens"},
+            {"metric": "num_completion_tokens", "value": 20, "unit": "tokens"},
+            {"metric": "num_total_tokens", "value": 30, "unit": "tokens"},
+        ],
+    }
+
+
+@pytest.fixture
 def mocked_responses():
     """Activate responses mock for HTTP requests."""
     with responses.RequestsMock() as rsps:
