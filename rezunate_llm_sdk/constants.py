@@ -1,4 +1,4 @@
-"""Global constants for LLM Router."""
+"""Global constants for Rezunate LLM."""
 
 import os
 
@@ -15,7 +15,7 @@ DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY = 1.0  # seconds
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
-# Router API
+# Rezunate LLM base url
 ROUTER_BASE_URL = os.getenv("ROUTER_BASE_URL", "https://rezunatellm.com")
 
 # Llama (Meta) native API — well-known keys in the response ``metrics`` array

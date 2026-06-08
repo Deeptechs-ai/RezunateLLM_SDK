@@ -1,4 +1,4 @@
-"""RouterClient — centralized HTTP transport for the LLM-Router API."""
+"""RouterClient — centralized HTTP transport for the Rezunate LLM API."""
 
 import http.client
 import logging
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class RouterAPIError(Exception):
-    """Raised when an LLM-Router API call fails."""
+    """Raised when an Rezunate LLM API call fails."""
 
     def __init__(self, message: str, status_code: int | None = None) -> None:
         super().__init__(message)
@@ -44,15 +44,14 @@ def _error_detail(resp: requests.Response, max_len: int = 500) -> str:
 
 
 class RouterClient:
-    """HTTP client for the LLM-Router API.
+    """HTTP client for the Rezunate LLM API.
 
-    Handles authentication, request dispatch, and error wrapping.
-    Endpoint-specific methods live in ``rezunate_llm_sdk.api``.
+    Attaches the API key, sends the request, and raises ``RouterAPIError``
+    on failure.
 
     Args:
-        api_key: API key for authentication (sent as X-API-Key header).
-            Falls back to the ``REZUNATE_LLM_API_KEY`` environment variable.
-        timeout: Request timeout in seconds (default 30).
+        api_key: API key for authentication.
+        timeout: Request timeout in seconds.
     """
 
     def __init__(
@@ -67,7 +66,7 @@ class RouterClient:
             raise RouterAPIError("api_key is required (or set REZUNATE_LLM_API_KEY env var)")
 
     def request(self, method: str, path: str, **kwargs) -> requests.Response:
-        """Send an authenticated request to the LLM-Router API.
+        """Send an authenticated request to the Rezunate LLM API.
 
         Args:
             method: HTTP method (GET, POST, etc.).
@@ -78,7 +77,7 @@ class RouterClient:
             The ``requests.Response`` object.
 
         Raises:
-            RouterAPIError: On connection or HTTP errors.
+            RouterAPIError: On connection, timeout, or HTTP errors.
         """
         url = f"{constants.ROUTER_BASE_URL}{path}"
         headers = {"X-API-Key": self.api_key, **kwargs.pop("headers", {})}
@@ -89,11 +88,11 @@ class RouterClient:
             resp.raise_for_status()
         except requests.ConnectionError as exc:
             raise RouterAPIError(
-                f"Cannot connect to LLM-Router API at {constants.ROUTER_BASE_URL}"
+                f"Cannot connect to Rezunate LLM API at {constants.ROUTER_BASE_URL}"
             ) from exc
         except requests.Timeout as exc:
             raise RouterAPIError(
-                f"LLM-Router API request timed out after {timeout}s: {method} {path}"
+                f"Rezunate LLM API request timed out after {timeout}s: {method} {path}"
             ) from exc
         except requests.HTTPError as exc:
             raise RouterAPIError(_error_detail(resp), status_code=resp.status_code) from exc

@@ -186,7 +186,7 @@ class Gateway:
             guardrails_config: Optional guardrails configuration for content filtering.
             server_guardrails: When True, scan LLM output with the hosted PII
                 service and block/redact it.
-            REZUNATE_LLM_API_KEY: API key for the LLM-Router API (falls back to REZUNATE_LLM_API_KEY env var).
+            REZUNATE_LLM_API_KEY: API key for the LLM-Router API.
         """
         self.default_provider = default_provider
         self.default_api_key = default_api_key
@@ -198,7 +198,7 @@ class Gateway:
 
     @property
     def client(self) -> RouterClient:
-        """Lazily-created RouterClient for the LLM-Router API."""
+        """Lazily-created RouterClient for the Rezunate LLM API."""
         if self._client is None:
             kwargs: dict = {}
             if self._REZUNATE_LLM_API_KEY:
@@ -309,7 +309,7 @@ class Gateway:
         variables: dict[str, str] | None = None,
         version: int | None = None,
     ) -> str:
-        """Fetch a prompt from the LLM-Router API and render it.
+        """Fetch a prompt from the Rezunate LLM API and render it.
 
         Args:
             slug_id: The prompt's slug identifier.

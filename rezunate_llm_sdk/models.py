@@ -1,5 +1,5 @@
 """
-Pydantic models for LLM Router.
+Pydantic models for Rezunate LLM.
 
 Defines request and response models following OpenAI format as the universal standard.
 """
@@ -304,7 +304,7 @@ class ScanResponse(BaseModel):
 
 
 class PromptResponse(BaseModel):
-    """Prompt returned by the LLM-Router API."""
+    """Prompt returned by the Rezunate LLM API."""
 
     slug_id: str
     name: str

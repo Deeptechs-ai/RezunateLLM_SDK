@@ -1,4 +1,4 @@
-"""LLM Router SDK.
+"""Rezunate LLM SDK.
 
 A unified Python library for chat completions across multiple AI providers
 (OpenAI, Anthropic, Google) using OpenAI-compatible request/response format.
