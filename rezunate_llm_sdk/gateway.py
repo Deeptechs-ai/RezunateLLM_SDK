@@ -11,7 +11,11 @@ from dotenv import load_dotenv
 from rezunate_llm_sdk.api import get_prompt as _api_get_prompt
 from rezunate_llm_sdk.api import scan_text as _api_scan_text
 from rezunate_llm_sdk.client import RouterClient
-from rezunate_llm_sdk.guardrails import check_guardrails, load_guardrails
+from rezunate_llm_sdk.guardrails import (
+    ServerGuardrailsError,
+    check_guardrails,
+    load_guardrails,
+)
 from rezunate_llm_sdk.models import (
     ChatCompletionChunk,
     ChatCompletionRequest,
@@ -20,6 +24,7 @@ from rezunate_llm_sdk.models import (
     GuardrailsConfig,
     Provider,
     ScanResponse,
+    ServerGuardrailsConfig,
 )
 from rezunate_llm_sdk.prompts import render_prompt
 from rezunate_llm_sdk.providers import get_provider, list_providers
@@ -82,8 +87,11 @@ def chat_complete(
         for msg in request.messages:
             if not msg.content:
                 continue
-            for v in check_guardrails(msg.content, config, GuardrailDirection.INPUT):
+            redacted, violations = check_guardrails(msg.content, config, GuardrailDirection.INPUT)
+            for v in violations:
                 logger.warning("GUARDRAIL %s [%s]: %s", v.action.name, v.direction.name, v)
+            if redacted != msg.content:
+                msg.content = redacted
 
     provider_instance = get_provider(provider, api_key, model=request.model)
 
@@ -94,8 +102,12 @@ def chat_complete(
     if config:
         for choice in response.choices:
             if content := choice.message.content:
-                for v in check_guardrails(content, config, GuardrailDirection.OUTPUT):
+                redacted, violations = check_guardrails(content, config, GuardrailDirection.OUTPUT)
+                for v in violations:
                     logger.warning("GUARDRAIL %s [%s]: %s", v.action.name, v.direction.name, v)
+                if redacted != content:
+                    choice.message.content = redacted
+
     return response
 
 
@@ -153,6 +165,8 @@ class Gateway:
         default_provider: Default provider to use when not specified.
         default_api_key: Default API key to use when not specified.
         guardrails_config: Optional guardrails configuration for content filtering.
+        server_guardrails: Enable the hosted PII scan. ``True`` scans both input
+            and output; pass a ``ServerGuardrailsConfig`` to scan only one side.
         guardrails: Server-side PII detection resource.
     """
 
@@ -161,6 +175,7 @@ class Gateway:
         default_provider: Provider | str | None = None,
         default_api_key: str | None = None,
         guardrails_config: GuardrailsConfig | None = None,
+        server_guardrails: bool | ServerGuardrailsConfig = False,
         REZUNATE_LLM_API_KEY: str | None = None,
     ) -> None:
         """Initialize Gateway.
@@ -169,18 +184,21 @@ class Gateway:
             default_provider: Default provider to use.
             default_api_key: Default API key to use for the LLM provider.
             guardrails_config: Optional guardrails configuration for content filtering.
-            REZUNATE_LLM_API_KEY: API key for the LLM-Router API (falls back to REZUNATE_LLM_API_KEY env var).
+            server_guardrails: When True, scan LLM output with the hosted PII
+                service and block/redact it.
+            REZUNATE_LLM_API_KEY: API key for the LLM-Router API.
         """
         self.default_provider = default_provider
         self.default_api_key = default_api_key
         self.guardrails_config = guardrails_config
+        self.server_guardrails = server_guardrails
         self._REZUNATE_LLM_API_KEY = REZUNATE_LLM_API_KEY
         self._client: RouterClient | None = None
         self.guardrails = GuardrailsResource(self)
 
     @property
     def client(self) -> RouterClient:
-        """Lazily-created RouterClient for the LLM-Router API."""
+        """Lazily-created RouterClient for the Rezunate LLM API."""
         if self._client is None:
             kwargs: dict = {}
             if self._REZUNATE_LLM_API_KEY:
@@ -194,6 +212,7 @@ class Gateway:
         provider: str | Provider | None = None,
         api_key: str | None = None,
         guardrails_config: GuardrailsConfig | None = None,
+        server_guardrails: bool | ServerGuardrailsConfig | None = None,
     ) -> ChatCompletionResponse | Iterator[ChatCompletionChunk]:
         """Execute chat completion. Streams if ``request.stream`` is true.
 
@@ -203,8 +222,10 @@ class Gateway:
                 ``ChatCompletionChunk`` objects instead of a single response.
             provider: Provider name (uses ``default_provider`` if not specified).
             api_key: API key (uses ``default_api_key`` if not specified).
-            guardrails_config: Optional guardrails config (uses instance
-                default if not specified).
+            guardrails_config: Optional guardrails config.
+            server_guardrails: Override the instance ``server_guardrails`` setting
+                for this call. ``True`` scans both input and output with the
+                hosted PII service.
 
         Returns:
             ``ChatCompletionResponse`` when ``request.stream`` is falsy, or
@@ -212,23 +233,75 @@ class Gateway:
 
         Raises:
             ValueError: If provider or api_key is not specified and no default is set.
-            GuardrailsError: If input or output content matches a guardrail rule.
+            GuardrailsError: If input or output content matches a local regex rule.
+            ServerGuardrailsError: If the hosted PII scan blocks input or output.
         """
         resolved_provider = provider or self.default_provider
         resolved_api_key = api_key or self.default_api_key
         resolved_guardrails = guardrails_config or self.guardrails_config
+        server = self.server_guardrails if server_guardrails is None else server_guardrails
+        # True -> scan both sides; a config picks the side(s); False/None -> off.
+        server_config = (
+            (server if isinstance(server, ServerGuardrailsConfig) else ServerGuardrailsConfig())
+            if server
+            else None
+        )
 
         if not resolved_provider:
             raise ValueError("Provider must be specified")
         if not resolved_api_key:
             raise ValueError("API key must be specified")
 
-        return chat_complete(
+        if server_config and GuardrailDirection.INPUT in server_config.directions:
+            for msg in request.messages:
+                if msg.content:
+                    msg.content = self._server_scan(msg.content, GuardrailDirection.INPUT)
+
+        response = chat_complete(
             provider=resolved_provider,
             api_key=resolved_api_key,
             request=request,
             guardrails_config=resolved_guardrails,
         )
+
+        if server_config and GuardrailDirection.OUTPUT in server_config.directions:
+            for choice in response.choices:
+                if choice.message.content:
+                    choice.message.content = self._server_scan(
+                        choice.message.content, GuardrailDirection.OUTPUT
+                    )
+
+        return response
+
+    def _server_scan(self, text: str, direction: GuardrailDirection) -> str:
+        """Scan one piece of text with the hosted PII service and apply its action.
+
+        Args:
+            text: The input or output text to scan.
+            direction: Which side this text is, for error reporting/logging.
+
+        Returns:
+            The text, redacted by the server if PII was found, or unchanged.
+
+        Raises:
+            ServerGuardrailsError: If the scan blocks the text.
+        """
+        result = self.guardrails.scan(text)
+        for ent in result.entities:
+            logger.warning(
+                "SERVER GUARDRAIL [%s]: %s %r (score=%.2f)",
+                direction.name,
+                ent.label,
+                ent.text,
+                ent.score,
+            )
+
+        if result.blocked:
+            raise ServerGuardrailsError(direction, result.entities, result.action)
+
+        if result.text and result.text != text:
+            return result.text
+        return text
 
     def get_prompt(
         self,
@@ -236,7 +309,7 @@ class Gateway:
         variables: dict[str, str] | None = None,
         version: int | None = None,
     ) -> str:
-        """Fetch a prompt from the LLM-Router API and render it.
+        """Fetch a prompt from the Rezunate LLM API and render it.
 
         Args:
             slug_id: The prompt's slug identifier.

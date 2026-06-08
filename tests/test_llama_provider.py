@@ -275,6 +275,7 @@ class TestLlamaIntegration:
         provider.chat_complete(req)
 
         import json
+
         body = json.loads(responses.calls[0].request.body)
         assert body["model"] == LLAMA_MODEL
         assert body["max_completion_tokens"] == 75

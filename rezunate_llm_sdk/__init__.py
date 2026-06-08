@@ -1,16 +1,17 @@
-"""LLM Router SDK.
+"""Rezunate LLM SDK.
 
 A unified Python library for chat completions across multiple AI providers
 (OpenAI, Anthropic, Google) using OpenAI-compatible request/response format.
 """
 
 from rezunate_llm_sdk.client import RouterAPIError, RouterClient
-from rezunate_llm_sdk.gateway import (
-    Gateway,
-    chat_complete,
-    get_available_providers,
+from rezunate_llm_sdk.gateway import Gateway, chat_complete, get_available_providers
+from rezunate_llm_sdk.guardrails import (
+    GuardrailsError,
+    ServerGuardrailsError,
+    check_guardrails,
+    load_guardrails,
 )
-from rezunate_llm_sdk.guardrails import GuardrailsError, check_guardrails, load_guardrails
 from rezunate_llm_sdk.models import (
     ChatCompletionChunk,
     ChatCompletionRequest,
@@ -25,6 +26,7 @@ from rezunate_llm_sdk.models import (
     Message,
     PromptResponse,
     ScanResponse,
+    ServerGuardrailsConfig,
     Tool,
     ToolCall,
     ToolChoiceFunction,
@@ -51,7 +53,9 @@ __all__ = [
     "RouterClient",
     "RouterAPIError",
     "GuardrailsError",
+    "ServerGuardrailsError",
     "GuardrailsConfig",
+    "ServerGuardrailsConfig",
     "GuardrailRule",
     "load_guardrails",
     "check_guardrails",

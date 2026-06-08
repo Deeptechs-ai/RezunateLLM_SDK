@@ -288,4 +288,3 @@ def _translate_tool_choice(
     if isinstance(tool_choice, ToolChoiceOption):
         return AnthropicSpecificToolChoice(name=tool_choice.function.name)
     return None
-

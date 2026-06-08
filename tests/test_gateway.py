@@ -430,9 +430,7 @@ class TestGatewayClass:
         self, mock_api_key, mocker, sample_messages, grok_response
     ):
         """Gateway works when Grok is configured as the default provider."""
-        _patch_openai_class_in(
-            "rezunate_llm_sdk.providers.grok_provider", mocker, grok_response
-        )
+        _patch_openai_class_in("rezunate_llm_sdk.providers.grok_provider", mocker, grok_response)
 
         gateway = Gateway(default_provider="grok", default_api_key=mock_api_key)
         request = ChatCompletionRequest(model="grok-3-mini", messages=sample_messages)

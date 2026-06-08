@@ -1,4 +1,4 @@
-"""LLM-Router API endpoints."""
+"""Rezunate LLM API endpoints."""
 
 from rezunate_llm_sdk.client import RouterClient
 from rezunate_llm_sdk.models import PromptResponse, ScanResponse
@@ -12,7 +12,7 @@ SCAN_TIMEOUT_SECONDS = 180
 
 
 def get_prompt(client: RouterClient, slug_id: str, version: int | None = None) -> PromptResponse:
-    """Fetch a prompt by slug from the LLM-Router API.
+    """Fetch a prompt by slug from the Rezunate LLM API.
 
     Args:
         client: Authenticated RouterClient instance.

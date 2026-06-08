@@ -1,5 +1,5 @@
 """
-Pydantic models for LLM Router.
+Pydantic models for Rezunate LLM.
 
 Defines request and response models following OpenAI format as the universal standard.
 """
@@ -44,6 +44,7 @@ class GuardrailAction(str, Enum):
 
     BLOCK = "block"
     FLAG = "flag"
+    REDACT = "redact"
 
 
 class GuardrailRule(BaseModel):
@@ -53,12 +54,31 @@ class GuardrailRule(BaseModel):
     pattern: str
     description: str = ""
     action: GuardrailAction = GuardrailAction.BLOCK
+    # Text that replaces each match when ``action`` is ``redact``.
+    replacement: str = "[REDACTED]"
 
 
 class GuardrailsConfig(BaseModel):
     """Configuration holding a list of guardrail rules."""
 
     guardrails: list[GuardrailRule]
+
+
+class ServerGuardrailsConfig(BaseModel):
+    """Options for the hosted PII scan.
+
+    Pass this to ``Gateway(server_guardrails=...)`` instead of ``True`` to
+    choose which side(s) the scan runs on.
+
+    Attributes:
+        directions: Which sides the scan runs on. Defaults to both input and
+            output; set to e.g. ``("output",)`` to scan only model output.
+    """
+
+    directions: tuple[GuardrailDirection, ...] = (
+        GuardrailDirection.INPUT,
+        GuardrailDirection.OUTPUT,
+    )
 
 
 class GuardrailViolation(BaseModel):
@@ -284,7 +304,7 @@ class ScanResponse(BaseModel):
 
 
 class PromptResponse(BaseModel):
-    """Prompt returned by the LLM-Router API."""
+    """Prompt returned by the Rezunate LLM API."""
 
     slug_id: str
     name: str
