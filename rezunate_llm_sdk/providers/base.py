@@ -3,23 +3,50 @@ Base Provider Class.
 All providers inherit from this class.
 """
 
+import json
 import random
 import time
+import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any
 
+import httpx
 import requests
 from pydantic import BaseModel
 
 import rezunate_llm_sdk.constants as constants
 from rezunate_llm_sdk.models import (
+    ChatCompletionChunk,
     ChatCompletionRequest,
     ChatCompletionResponse,
+    ChoiceChunk,
+    ChoiceDelta,
     ErrorInfo,
+    FinishReason,
     Provider,
     Usage,
 )
 from rezunate_llm_sdk.providers.endpoints import get_url
+from rezunate_llm_sdk.streaming.sse_parser import parse_sse_lines
+
+
+@dataclass
+class StreamState:
+    """Per-stream mutable state passed to translator hooks.
+
+    Common fields (``id``, ``model``, ``created``) cover the majority of
+    providers. Provider-specific fields (``input_tokens``, ``role_sent``)
+    are present here so providers that need them can use them directly
+    without subclassing.
+    """
+
+    id: str
+    model: str | None = None
+    created: int = 0
+    input_tokens: int = 0
+    role_sent: bool = False
 
 
 class BaseProvider(ABC):
@@ -191,3 +218,116 @@ class BaseProvider(ABC):
                 code=status_code,
             ),
         )
+
+    # Streaming
+    def stream(self, request: ChatCompletionRequest) -> Iterator[ChatCompletionChunk]:
+        """Streaming chat completion.
+
+        Default implementation drives the request through SSE. Override
+        for SDK-based streaming.
+        """
+        state = self._new_stream_state(request)
+        try:
+            url, body, headers = self._build_stream_request(request)
+            lines = self._stream_http_lines(url, body, headers)
+            for event, data in parse_sse_lines(lines):
+                if self._is_stream_terminator(event, data):
+                    return
+                if (chunk := self._translate_frame(event, data, state)) is not None:
+                    yield chunk
+        except Exception as e:
+            yield self._error_chunk(e, request.model)
+
+    # ---- hooks (override in native-protocol providers) ------------------
+
+    def _new_stream_state(self, request: ChatCompletionRequest) -> StreamState:
+        """Per-stream mutable state. Defaults to a fresh ``StreamState``."""
+        return StreamState(
+            id=f"chatcmpl-{uuid.uuid4().hex[:8]}",
+            model=request.model,
+            created=int(time.time()),
+        )
+
+    def _build_stream_request(
+        self, request: ChatCompletionRequest
+    ) -> tuple[str, dict[str, Any], dict[str, str]]:
+        """Return ``(url, body, headers)`` for the streaming POST."""
+        raise NotImplementedError(f"{type(self).__name__} does not implement _build_stream_request")
+
+    def _translate_frame(
+        self, event: str, data: str, state: StreamState
+    ) -> ChatCompletionChunk | None:
+        """Translate one SSE frame into a chunk, or ``None`` to skip it."""
+        raise NotImplementedError(f"{type(self).__name__} does not implement _translate_frame")
+
+    def _is_stream_terminator(self, event: str, data: str) -> bool:
+        """Return ``True`` when this frame ends the stream."""
+        return False
+
+    # ---- shared helpers --------------------------------------------------
+
+    @staticmethod
+    def _parse_json_frame(data: str) -> dict | None:
+        """Parse a JSON SSE frame payload. Returns ``None`` if empty or malformed."""
+        if not data:
+            return None
+        try:
+            return json.loads(data)
+        except json.JSONDecodeError:
+            return None
+
+    def _make_chunk(
+        self,
+        state: StreamState,
+        delta: ChoiceDelta | None = None,
+        finish_reason: FinishReason | None = None,
+        usage: Usage | None = None,
+    ) -> ChatCompletionChunk:
+        """Build a ``ChatCompletionChunk`` from stream state and a delta."""
+        return ChatCompletionChunk(
+            id=state.id,
+            created=state.created,
+            model=state.model,
+            choices=[
+                ChoiceChunk(
+                    index=0,
+                    delta=delta or ChoiceDelta(),
+                    finish_reason=finish_reason,
+                )
+            ],
+            usage=usage,
+            provider=self.provider_name,
+        )
+
+    def _error_chunk(self, error: Exception, model: str | None = None) -> ChatCompletionChunk:
+        """Terminal-error chunk mirroring the shape of ``_handle_error``."""
+        status_code = None
+        if hasattr(error, "response") and error.response is not None:
+            status_code = getattr(error.response, "status_code", None)
+
+        return ChatCompletionChunk(
+            id=None,
+            created=int(time.time()),
+            model=model,
+            choices=[],
+            provider=self.provider_name,
+            error=ErrorInfo(
+                message=str(error),
+                type="api_error",
+                code=status_code,
+            ),
+        )
+
+    def _stream_http_lines(
+        self,
+        url: str,
+        body: dict[str, Any],
+        headers: dict[str, str] | None = None,
+    ) -> Iterator[str]:
+        """Open an httpx stream and yield decoded text lines."""
+        with httpx.Client(timeout=self.timeout) as client:
+            with client.stream(
+                "POST", url, json=body, headers=headers or self.get_headers()
+            ) as response:
+                response.raise_for_status()
+                yield from response.iter_lines()

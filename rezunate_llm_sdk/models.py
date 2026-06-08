@@ -17,6 +17,10 @@ class Provider(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GOOGLE = "google"
+    GROK = "grok"
+    LLAMA = "llama"
+    DEEPSEEK = "deepseek"
+    QWEN = "qwen"
 
 
 class Role(str, Enum):
@@ -167,11 +171,15 @@ class FinishReason(str, Enum):
 
 # Centralized mapping for all provider-specific finish reasons
 FINISH_REASON_MAP: dict[str, FinishReason] = {
-    # OpenAI (passthrough)
+    # OpenAI-style values — also emitted by xAI (Grok), DeepSeek,
+    # Qwen native (DashScope, result_format="message"), and Llama native (Meta).
+    # All five providers use the same lowercase vocabulary.
     "stop": FinishReason.STOP,
     "length": FinishReason.LENGTH,
     "content_filter": FinishReason.CONTENT_FILTER,
     "tool_calls": FinishReason.TOOL_CALLS,
+    # DeepSeek-specific — returned by deepseek-reasoner under resource pressure
+    "insufficient_system_resource": FinishReason.STOP,
     # Google Gemini
     "STOP": FinishReason.STOP,
     "MAX_TOKENS": FinishReason.LENGTH,
@@ -224,6 +232,34 @@ class ChatCompletionResponse(BaseModel):
     model: str | None = None
     choices: list[Choice] = Field(default_factory=list)
     usage: Usage = Field(default_factory=Usage)
+    provider: Provider | None = None
+    error: ErrorInfo | None = None
+
+
+class ChoiceDelta(BaseModel):
+    """Incremental delta for a streaming choice (OpenAI chunk shape)."""
+
+    role: Role | None = None
+    content: str | None = None
+
+
+class ChoiceChunk(BaseModel):
+    """A single choice in a streaming chat completion chunk."""
+
+    index: int = 0
+    delta: ChoiceDelta = Field(default_factory=ChoiceDelta)
+    finish_reason: FinishReason | None = None
+
+
+class ChatCompletionChunk(BaseModel):
+    """One chunk of a streaming chat completion in OpenAI format."""
+
+    id: str | None = None
+    object: str = "chat.completion.chunk"
+    created: int = 0
+    model: str | None = None
+    choices: list[ChoiceChunk] = Field(default_factory=list)
+    usage: Usage | None = None
     provider: Provider | None = None
     error: ErrorInfo | None = None
 

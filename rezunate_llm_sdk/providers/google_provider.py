@@ -11,9 +11,11 @@ from typing import Any
 import rezunate_llm_sdk.constants as constants
 from rezunate_llm_sdk.models import (
     FINISH_REASON_MAP,
+    ChatCompletionChunk,
     ChatCompletionRequest,
     ChatCompletionResponse,
     Choice,
+    ChoiceDelta,
     FinishReason,
     FunctionCall,
     Message,
@@ -25,10 +27,12 @@ from rezunate_llm_sdk.models import (
     ToolChoiceOption,
     Usage,
 )
-from rezunate_llm_sdk.providers.base import BaseProvider
+from rezunate_llm_sdk.providers.base import BaseProvider, StreamState
 from rezunate_llm_sdk.providers.endpoints import (
     GOOGLE_BASE_URL,
     GOOGLE_GENERATE_CONTENT_ENDPOINT,
+    GOOGLE_STREAM_GENERATE_CONTENT_ENDPOINT,
+    get_url,
 )
 from rezunate_llm_sdk.providers.google_models import (
     GoogleContentBlock,
@@ -211,6 +215,56 @@ class GoogleProvider(BaseProvider):
             provider=self.provider_name,
         )
 
+    # ---- streaming hooks (driven by BaseProvider.stream) ----------------
+
+    def _build_stream_request(
+        self, request: ChatCompletionRequest
+    ) -> tuple[str, dict[str, Any], dict[str, str]]:
+        url = get_url(self.base_url, GOOGLE_STREAM_GENERATE_CONTENT_ENDPOINT, model=request.model)
+        body = self.transform_request(request).model_dump(exclude_none=True)
+        return url, body, self.get_headers()
+
+    def _translate_frame(
+        self, event: str, data: str, state: StreamState
+    ) -> ChatCompletionChunk | None:
+        payload = self._parse_json_frame(data)
+        if payload is None:
+            return None
+
+        candidates = payload.get("candidates") or []
+        if not candidates:
+            return None
+        candidate = candidates[0]
+        parts = (candidate.get("content") or {}).get("parts") or []
+        text = "".join(part.get("text", "") for part in parts)
+
+        finish_reason_raw = candidate.get("finishReason")
+        finish_reason = (
+            FINISH_REASON_MAP.get(finish_reason_raw, FinishReason.STOP)
+            if finish_reason_raw
+            else None
+        )
+
+        usage = None
+        if usage_meta := payload.get("usageMetadata"):
+            prompt_tokens = usage_meta.get("promptTokenCount", 0)
+            completion_tokens = usage_meta.get("candidatesTokenCount", 0)
+            total_tokens = usage_meta.get("totalTokenCount") or (prompt_tokens + completion_tokens)
+            usage = Usage(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+            )
+
+        delta = ChoiceDelta()
+        if not state.role_sent:
+            delta.role = Role.ASSISTANT
+            state.role_sent = True
+        if text:
+            delta.content = text
+
+        return self._make_chunk(state, delta=delta, finish_reason=finish_reason, usage=usage)
+
 
 def _message_to_google_parts(msg: Message) -> list[GoogleContentBlock]:
     """Render a normalized assistant/user Message as a list of Gemini parts."""
@@ -263,3 +317,4 @@ def _translate_tool_choice(
             )
         )
     return None
+
