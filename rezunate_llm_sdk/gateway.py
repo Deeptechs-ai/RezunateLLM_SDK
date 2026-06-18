@@ -8,6 +8,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from rezunate_llm_sdk import constants
 from rezunate_llm_sdk.api import get_prompt as _api_get_prompt
 from rezunate_llm_sdk.api import scan_text as _api_scan_text
 from rezunate_llm_sdk.client import RouterClient
@@ -37,6 +38,20 @@ logger = logging.getLogger(__name__)
 
 # Guardrails file path
 GUARDRAILS_FILE = os.getenv("GUARDRAILS_FILE_PATH")
+
+
+def _split_for_flush(buf: str) -> tuple[str, str]:
+    """Split a scan buffer into the part to flush now and the part to carry.
+
+    Cuts at the last sentence terminator so each scan sees whole sentences.
+    """
+    last_end = max((m.end() for m in constants.STREAM_SENTENCE_END.finditer(buf)), default=-1)
+    if last_end != -1:
+        return buf[:last_end], buf[last_end:]
+    cut = buf.rfind(" ")
+    if cut > 0:
+        return buf[: cut + 1], buf[cut + 1 :]
+    return buf, ""
 
 
 @lru_cache(maxsize=1)
@@ -118,7 +133,8 @@ def _iter_stream(
         if config:
             for choice in chunk.choices:
                 if content := choice.delta.content:
-                    for v in check_guardrails(content, config, GuardrailDirection.OUTPUT):
+                    _, violations = check_guardrails(content, config, GuardrailDirection.OUTPUT)
+                    for v in violations:
                         logger.warning("GUARDRAIL %s [%s]: %s", v.action.name, v.direction.name, v)
         yield chunk
 
@@ -265,6 +281,8 @@ class Gateway:
         )
 
         if server_config and GuardrailDirection.OUTPUT in server_config.directions:
+            if request.stream:
+                return self._scan_stream_redact(response)  # response is an iterator
             for choice in response.choices:
                 if choice.message.content:
                     choice.message.content = self._server_scan(
@@ -272,6 +290,73 @@ class Gateway:
                     )
 
         return response
+
+    def _scan_stream_redact(
+        self, chunks: Iterator[ChatCompletionChunk]
+    ) -> Iterator[ChatCompletionChunk]:
+        """Buffer streamed output, scan + redact per sentence, then emit.
+
+        Output content deltas are accumulated until a sentence boundary
+        (or a size cap) is reached.
+        """
+        buf = ""
+        template: ChatCompletionChunk | None = None
+
+        for chunk in chunks:
+            if chunk.choices and template is None:
+                template = chunk
+
+            content = "".join(c.delta.content for c in chunk.choices if c.delta and c.delta.content)
+            if content:
+                buf += content
+                if (
+                    len(buf) >= constants.STREAM_SCAN_MIN_CHARS
+                    and constants.STREAM_SENTENCE_END.search(buf)
+                ) or len(buf) >= constants.STREAM_SCAN_MAX_CHARS:
+                    head, buf = _split_for_flush(buf)
+                    if head:
+                        yield self._redacted_chunk(head, template)
+
+            # Forward any non-content signal (role, finish_reason, usage,
+            # error), flushing buffered text first to keep stream order.
+            if self._chunk_has_signal(chunk):
+                if buf:
+                    yield self._redacted_chunk(buf, template)
+                    buf = ""
+                yield self._meta_only(chunk)
+
+        if buf:
+            yield self._redacted_chunk(buf, template)
+
+    @staticmethod
+    def _chunk_has_signal(chunk: ChatCompletionChunk) -> bool:
+        """Whether a chunk carries metadata that must be forwarded as-is."""
+        if not chunk.choices:
+            return True  # usage-only / terminal chunk
+        if getattr(chunk, "error", None):
+            return True
+        return any(c.finish_reason or (c.delta and c.delta.role) for c in chunk.choices)
+
+    def _redacted_chunk(self, text: str, template: ChatCompletionChunk) -> ChatCompletionChunk:
+        """Scan + redact a buffer and pack the redacted text into one chunk."""
+        redacted = self._server_scan(text, GuardrailDirection.OUTPUT)
+        chunk = template.model_copy(deep=True)
+        chunk.usage = None
+        choice = chunk.choices[0]
+        choice.delta.content = redacted
+        choice.delta.role = None
+        choice.finish_reason = None
+        chunk.choices = [choice]
+        return chunk
+
+    @staticmethod
+    def _meta_only(chunk: ChatCompletionChunk) -> ChatCompletionChunk:
+        """Clone a chunk with content stripped (it was buffered and emitted already)."""
+        chunk = chunk.model_copy(deep=True)
+        for choice in chunk.choices:
+            if choice.delta:
+                choice.delta.content = None
+        return chunk
 
     def _server_scan(self, text: str, direction: GuardrailDirection) -> str:
         """Scan one piece of text with the hosted PII service and apply its action.
@@ -287,15 +372,6 @@ class Gateway:
             ServerGuardrailsError: If the scan blocks the text.
         """
         result = self.guardrails.scan(text)
-        for ent in result.entities:
-            logger.warning(
-                "SERVER GUARDRAIL [%s]: %s %r (score=%.2f)",
-                direction.name,
-                ent.label,
-                ent.text,
-                ent.score,
-            )
-
         if result.blocked:
             raise ServerGuardrailsError(direction, result.entities, result.action)
 
