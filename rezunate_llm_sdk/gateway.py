@@ -17,6 +17,7 @@ from rezunate_llm_sdk.guardrails import (
     check_guardrails,
     load_guardrails,
 )
+from rezunate_llm_sdk.masking import MaskVault, split_trailing_partial
 from rezunate_llm_sdk.models import (
     ChatCompletionChunk,
     ChatCompletionRequest,
@@ -76,6 +77,7 @@ def chat_complete(
     api_key: str,
     request: ChatCompletionRequest,
     guardrails_config: GuardrailsConfig | None = None,
+    vault: MaskVault | None = None,
 ) -> ChatCompletionResponse | Iterator[ChatCompletionChunk]:
     """Execute chat completion with the specified provider.
 
@@ -88,6 +90,9 @@ def chat_complete(
         api_key: API key for the provider.
         request: Chat completion request. Set ``stream=True`` for streaming.
         guardrails_config: Optional guardrails configuration.
+        vault: Optional masking vault. With one, ``redact`` rules mask *input*
+            with restorable placeholders. Output is left as-is here — the caller
+            restores it later, after any output guardrails have run.
 
     Returns:
         ``ChatCompletionResponse`` when ``request.stream`` is falsy, or
@@ -102,7 +107,9 @@ def chat_complete(
         for msg in request.messages:
             if not msg.content:
                 continue
-            redacted, violations = check_guardrails(msg.content, config, GuardrailDirection.INPUT)
+            redacted, violations = check_guardrails(
+                msg.content, config, GuardrailDirection.INPUT, vault=vault
+            )
             for v in violations:
                 logger.warning("GUARDRAIL %s [%s]: %s", v.action.name, v.direction.name, v)
             if redacted != msg.content:
@@ -229,6 +236,9 @@ class Gateway:
         api_key: str | None = None,
         guardrails_config: GuardrailsConfig | None = None,
         server_guardrails: bool | ServerGuardrailsConfig | None = None,
+        reversible: bool = False,
+        vault: MaskVault | None = None,
+        rehydrate: bool = True,
     ) -> ChatCompletionResponse | Iterator[ChatCompletionChunk]:
         """Execute chat completion. Streams if ``request.stream`` is true.
 
@@ -242,6 +252,18 @@ class Gateway:
             server_guardrails: Override the instance ``server_guardrails`` setting
                 for this call. ``True`` scans both input and output with the
                 hosted PII service.
+            reversible: When True, PII masked on the *input* uses unique,
+                restorable placeholders and the output is rehydrated back to the
+                originals before returning. Off by default — the usual one-way
+                ``[REDACTED]``-style masking is unchanged.
+            vault: The mask map to use/extend. Pass one to resume a conversation
+                (stable numbering, persisted map) or to inspect it afterwards; if
+                omitted, a fresh one is used and discarded. Only applies when
+                ``reversible`` is True. **Keep one vault per end-user** — never
+                share it across users of the same Gateway.
+            rehydrate: With ``reversible`` on, restore the output to real values
+                before returning (default). Set False to keep it masked and
+                restore yourself later via the vault.
 
         Returns:
             ``ChatCompletionResponse`` when ``request.stream`` is falsy, or
@@ -268,26 +290,49 @@ class Gateway:
         if not resolved_api_key:
             raise ValueError("API key must be specified")
 
+        # A vault is created only for reversible calls and stays local to this
+        # call (never stored on self) so concurrent end-users never share masks.
+        active_vault = (vault if vault is not None else MaskVault()) if reversible else None
+
         if server_config and GuardrailDirection.INPUT in server_config.directions:
             for msg in request.messages:
                 if msg.content:
-                    msg.content = self._server_scan(msg.content, GuardrailDirection.INPUT)
+                    if active_vault is not None:
+                        msg.content = self._server_scan_reversible(
+                            msg.content, GuardrailDirection.INPUT, active_vault
+                        )
+                    else:
+                        msg.content = self._server_scan(msg.content, GuardrailDirection.INPUT)
 
         response = chat_complete(
             provider=resolved_provider,
             api_key=resolved_api_key,
             request=request,
             guardrails_config=resolved_guardrails,
+            vault=active_vault,
         )
 
+        if request.stream:
+            stream = response
+            if server_config and GuardrailDirection.OUTPUT in server_config.directions:
+                stream = self._scan_stream_redact(stream)
+            if active_vault is not None and rehydrate:
+                stream = self._restore_stream(stream, active_vault)
+            return stream
+
         if server_config and GuardrailDirection.OUTPUT in server_config.directions:
-            if request.stream:
-                return self._scan_stream_redact(response)  # response is an iterator
             for choice in response.choices:
                 if choice.message.content:
                     choice.message.content = self._server_scan(
                         choice.message.content, GuardrailDirection.OUTPUT
                     )
+
+        # Rehydrate last: after all output guardrails, so restored input PII is
+        # not re-scanned, and placeholders (not PII) pass those guardrails through.
+        if active_vault is not None and rehydrate:
+            for choice in response.choices:
+                if choice.message.content:
+                    choice.message.content = active_vault.restore(choice.message.content)
 
         return response
 
@@ -378,6 +423,54 @@ class Gateway:
         if result.text and result.text != text:
             return result.text
         return text
+
+    def _server_scan_reversible(
+        self, text: str, direction: GuardrailDirection, vault: MaskVault
+    ) -> str:
+        """Scan with the hosted PII service, masking reversibly into ``vault``.
+
+        Uses the detected entity spans (not the server's flattened text) so each
+        value gets its own restorable placeholder.
+
+        Raises:
+            ServerGuardrailsError: If the scan blocks the text.
+        """
+        result = self.guardrails.scan(text)
+        if result.blocked:
+            raise ServerGuardrailsError(direction, result.entities, result.action)
+        if not result.entities:
+            return text
+        return vault.mask_entities(text, result.entities)
+
+    def _restore_stream(
+        self, chunks: Iterator[ChatCompletionChunk], vault: MaskVault
+    ) -> Iterator[ChatCompletionChunk]:
+        """Restore placeholders back to originals across a streamed response.
+
+        A placeholder can straddle two deltas, so a half-finished ``[...`` tail is
+        held back and stitched onto the next one before restoring.
+        """
+        carry = ""
+        template: ChatCompletionChunk | None = None
+
+        for chunk in chunks:
+            if chunk.choices and template is None:
+                template = chunk
+            for choice in chunk.choices:
+                if choice.delta and choice.delta.content is not None:
+                    safe, carry = split_trailing_partial(carry + choice.delta.content)
+                    choice.delta.content = vault.restore(safe)
+            yield chunk
+
+        if carry and template is not None:
+            tail = template.model_copy(deep=True)
+            tail.usage = None
+            choice = tail.choices[0]
+            choice.delta.content = vault.restore(carry)
+            choice.delta.role = None
+            choice.finish_reason = None
+            tail.choices = [choice]
+            yield tail
 
     def get_prompt(
         self,

@@ -12,6 +12,7 @@ from rezunate_llm_sdk.guardrails import (
     check_guardrails,
     load_guardrails,
 )
+from rezunate_llm_sdk.masking import MaskVault, unmask
 from rezunate_llm_sdk.models import (
     ChatCompletionChunk,
     ChatCompletionRequest,
@@ -59,6 +60,8 @@ __all__ = [
     "GuardrailRule",
     "load_guardrails",
     "check_guardrails",
+    "MaskVault",
+    "unmask",
     "ChatCompletionRequest",
     "ChatCompletionResponse",
     "ChatCompletionChunk",
