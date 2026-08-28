@@ -1,6 +1,6 @@
 # Rezunate LLM SDK
 
-Unified Python SDK for chat completions, prompt management, and PII guardrails across OpenAI, Anthropic, and Google Gemini. All requests and responses use the OpenAI format, regardless of provider.
+Unified Python SDK for chat completions, prompt management, and PII guardrails across OpenAI, Anthropic, Google Gemini, Grok (xAI), DeepSeek, Llama (Meta), and Qwen (Alibaba). All requests and responses use the OpenAI format, regardless of provider — streaming included.
 
 Get an API key and learn more at [rezunatellm.com](https://rezunatellm.com).
 
@@ -8,7 +8,7 @@ Get an API key and learn more at [rezunatellm.com](https://rezunatellm.com).
 
 | Feature | Cost | Requires |
 |---|---|---|
-| Unified chat completions across OpenAI, Anthropic, Google Gemini | **Free** | Your own provider API key |
+| Unified chat completions across seven providers, streaming or not | **Free** | Your own provider API key |
 | Local regex guardrails (block / flag PII in inputs and outputs) | **Free** | Nothing — runs client-side |
 | Server-side PII detection | Hosted | Rezunate API key |
 | Prompt management with versioning  | Hosted | Rezunate API key |
@@ -57,9 +57,21 @@ response = chat_complete(
 )
 ```
 
-Responses always come back in OpenAI format (`response.choices[0].message.content`, `response.usage.total_tokens`, etc.) — even for Anthropic and Google.
+Responses always come back in OpenAI format (`response.choices[0].message.content`, `response.usage.total_tokens`, etc.) — whichever provider served the call.
 
 ## Providers
+
+Seven providers ship with the SDK, all behind the same request and response shape:
+
+| Provider | `provider=` | Wire protocol |
+|---|---|---|
+| OpenAI | `openai` | OpenAI Chat Completions |
+| Anthropic | `anthropic` | Anthropic Messages |
+| Google Gemini | `google` | Gemini `generateContent` |
+| Grok (xAI) | `grok` | OpenAI-compatible |
+| DeepSeek | `deepseek` | OpenAI-compatible |
+| Llama (Meta) | `llama` | Meta native |
+| Qwen (Alibaba) | `qwen` | DashScope native |
 
 The SDK ships with a factory that creates provider instances on demand. You bring your own API key per provider — Rezunate doesn't proxy or charge for these calls.
 
@@ -68,7 +80,8 @@ from rezunate_llm_sdk import get_available_providers, get_provider
 
 # List the providers the SDK supports
 print(get_available_providers())
-# [Provider.OPENAI, Provider.ANTHROPIC, Provider.GOOGLE]
+# [Provider.OPENAI, Provider.ANTHROPIC, Provider.GOOGLE,
+#  Provider.GROK, Provider.LLAMA, Provider.DEEPSEEK, Provider.QWEN]
 
 # Build a provider instance directly (skips the Gateway/chat_complete facade)
 provider = get_provider("anthropic", api_key="your-anthropic-key")
@@ -112,9 +125,36 @@ ChatCompletionRequest(
 
 Provider-specific arguments (e.g. Google `top_k`, `safety_settings`) are accepted as extra fields and forwarded by each provider's transformer.
 
+## Streaming
+
+Set `stream=True` and the call returns an iterator of `ChatCompletionChunk` objects instead of a single response. Every provider streams, and every one yields the same OpenAI chunk shape.
+
+```python
+req = ChatCompletionRequest(
+    model="claude-sonnet-4-5",
+    messages=[Message(role="user", content="Write a haiku about latency.")],
+    max_tokens=200,
+    stream=True,
+)
+
+for chunk in gateway.chat_complete(req):
+    if chunk.error:
+        print("stream failed:", chunk.error.message)
+        break
+    for choice in chunk.choices:
+        if choice.delta.content:
+            print(choice.delta.content, end="", flush=True)
+```
+
+`delta.role` is set on the first chunk only, `finish_reason` on the last. A provider or transport failure does not raise — the iterator yields a single chunk with `error` populated and stops, so check `chunk.error` in the loop.
+
+Guardrails behave differently on a stream: local regex `block` rules still raise, but local `redact` rules only log (deltas are not rewritten). Hosted guardrails buffer output to a sentence boundary, scan, and emit redacted text — use `server_guardrails=True` when redacting streamed output matters.
+
 ## Tool Calling
 
-Define tools in OpenAI format and the SDK translates them to each provider's native shape (Anthropic `tool_use`, Google `functionCall`) and normalizes the response back to OpenAI `tool_calls`. The same code works across OpenAI, Anthropic, and Google.
+Define tools in OpenAI format and the SDK translates them to each provider's native shape (Anthropic `tool_use`, Google `functionCall`) and normalizes the response back to OpenAI `tool_calls`.
+
+Tool support by provider: OpenAI, Grok, and DeepSeek pass tools through natively; Anthropic and Google are translated both ways; Llama forwards `tools` to Meta's native field. Qwen's DashScope transformer does not carry tools — they are dropped on that provider.
 
 ```python
 from rezunate_llm_sdk import ChatCompletionRequest, Gateway, Message

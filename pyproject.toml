@@ -15,8 +15,13 @@ dependencies = [
     "httpx>=0.27.0",
     "python-dotenv>=1.0.0",
     "openai>=1.0.0",
-    "pre-commit>=4.5.1",
 ]
+
+[project.scripts]
+rezunate-guard = "rezunate_guard.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["rezunate_llm_sdk", "rezunate_guard"]
 
 [project.optional-dependencies]
 dev = [
@@ -55,7 +60,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["llm_router"]
+known-first-party = ["rezunate_llm_sdk", "rezunate_guard"]
 
 [tool.ruff.format]
 quote-style = "double"

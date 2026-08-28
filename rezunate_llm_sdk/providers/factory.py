@@ -144,7 +144,8 @@ def get_factory(provider_name: str | Provider) -> ProviderFactory:
     Get a factory instance by provider name.
 
     Args:
-        provider_name: Name of the provider (openai, anthropic, google)
+        provider_name: Name of the provider (any Provider value, e.g. openai,
+            anthropic, google, grok, llama, deepseek, qwen)
 
     Returns:
         ProviderFactory instance
