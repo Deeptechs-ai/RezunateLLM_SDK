@@ -17,9 +17,7 @@ from rezunate_guard.scanner import stored_key
 #: never return as text we could redact.
 HOOK_EVENTS = ("PreToolUse", "PostToolUse")
 
-#: Every tool, not just Read. Bash returns file contents on stdout, Grep in matched
-#: lines, an MCP server in its own shape. The hook decides from the paths a call
-#: touches, so tools that touch none cost nothing.
+#: Every tool
 HOOK_MATCHER = "*"
 
 #: Identifies our entries, so uninstall never disturbs hooks someone else registered.
@@ -152,6 +150,58 @@ def command_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def _allow_redacted_copies(settings: dict) -> bool:
+    """Let Claude Code open the redacted copies.
+
+    They sit outside every project so they are never scanned themselves, which also puts
+    them outside Claude Code's working directories.
+
+    Returns:
+        True if the entry was added, False if it was already there.
+
+    Raises:
+        ValueError: If `permissions` is shaped in a way we should not overwrite.
+    """
+    permissions = settings.setdefault("permissions", {})
+    if not isinstance(permissions, dict):
+        raise ValueError("a 'permissions' key that is not an object")
+
+    directories = permissions.setdefault("additionalDirectories", [])
+    if not isinstance(directories, list):
+        raise ValueError("a malformed 'permissions.additionalDirectories' list")
+
+    copies_dir = str(constants.redacted_copies_dir())
+    if copies_dir in directories:
+        return False
+
+    directories.append(copies_dir)
+    return True
+
+
+def _disallow_redacted_copies(settings: dict) -> bool:
+    """Drop our directory from `permissions`, leaving anything else there untouched."""
+    permissions = settings.get("permissions")
+    if not isinstance(permissions, dict):
+        return False
+
+    directories = permissions.get("additionalDirectories")
+    if not isinstance(directories, list):
+        return False
+
+    copies_dir = str(constants.redacted_copies_dir())
+    if copies_dir not in directories:
+        return False
+
+    remaining = [entry for entry in directories if entry != copies_dir]
+    if remaining:
+        permissions["additionalDirectories"] = remaining
+    else:
+        del permissions["additionalDirectories"]
+    if not permissions:
+        del settings["permissions"]
+    return True
+
+
 def command_install(args: argparse.Namespace) -> int:
     """Register both hook events in `settings.json`, adding whichever is missing."""
     path = settings_path(args.scope)
@@ -177,6 +227,16 @@ def command_install(args: argparse.Namespace) -> int:
         )
         changes.append(f"{event}: registered for {HOOK_MATCHER!r}")
 
+    try:
+        if _allow_redacted_copies(settings):
+            changes.append(f"permissions: allowed reads of {constants.redacted_copies_dir()}")
+    except ValueError as exc:
+        print(f"{path} has {exc}; fix it first", file=sys.stderr)
+        return 1
+
+    # The directory has to exist for Claude Code to accept it as a working directory.
+    constants.redacted_copies_dir().mkdir(parents=True, exist_ok=True, mode=0o700)
+
     if not changes:
         print(f"already installed in {path}")
         return 0
@@ -195,10 +255,14 @@ def command_uninstall(args: argparse.Namespace) -> int:
     settings = _read_json(path)
     hooks = settings.get("hooks")
     if not isinstance(hooks, dict):
+        if _disallow_redacted_copies(settings):
+            _write_json(path, settings)
+            print(f"redacted-copies directory removed from {path}")
+            return 0
         print(f"nothing to remove in {path}")
         return 0
 
-    removed = False
+    removed = _disallow_redacted_copies(settings)
     for event in HOOK_EVENTS:
         entries = hooks.get(event)
         if not isinstance(entries, list):
@@ -317,6 +381,30 @@ def _report_config() -> list[str]:
     return []
 
 
+def _report_redacted_copies() -> list[str]:
+    """Print whether Claude Code may open the redacted copies.
+
+    Returns:
+        Problems found. Without the entry a PDF is extracted and redacted correctly and
+        the read is then refused, which reads as the file being unsupported.
+    """
+    copies_dir = str(constants.redacted_copies_dir())
+    for path in (settings_path("user"), settings_path("project")):
+        permissions = _read_json(path).get("permissions")
+        if not isinstance(permissions, dict):
+            continue
+        directories = permissions.get("additionalDirectories")
+        if isinstance(directories, list) and copies_dir in directories:
+            print(f"  copies     readable, listed in {path}")
+            return []
+
+    print("  copies     NOT READABLE")
+    return [
+        f"Claude Code cannot open the redacted copies in {copies_dir}, so PDFs and Word "
+        "files will be refused after being redacted. Run `rezunate-guard install`."
+    ]
+
+
 def command_status(args: argparse.Namespace) -> int:
     """Report whether the guard would actually protect anything right now.
 
@@ -327,7 +415,7 @@ def command_status(args: argparse.Namespace) -> int:
     print(f"rezunate-guard {__version__}")
     print()
 
-    problems = _report_key() + _report_hook() + _report_config()
+    problems = _report_key() + _report_hook() + _report_config() + _report_redacted_copies()
     if not problems:
         print()
         print("Protection is active.")

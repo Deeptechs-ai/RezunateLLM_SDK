@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -13,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from rezunate_guard import constants, hook
+from rezunate_guard.scanner import ScanError
 
 
 @pytest.fixture
@@ -662,3 +664,127 @@ class TestProcessContract:
         assert result.returncode == 0
         if result.stdout.strip():
             json.loads(result.stdout)
+
+
+class TestServingARedactedCopy:
+    """A file the model cannot be shown is swapped for a redacted copy of its text.
+
+    Refusing the read is safe but leaves the user stuck, so anything we can extract is
+    extracted, redacted and served instead. Everything we cannot is still refused.
+    """
+
+    def pre_payload(self, path, **extra) -> dict:
+        return {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Read",
+            "tool_input": {"file_path": str(path), **extra},
+        }
+
+    @pytest.fixture(autouse=True)
+    def offline(self, monkeypatch):
+        """Redaction stands in for the API, so no test here touches the network."""
+        monkeypatch.setattr(
+            hook, "redact_all", lambda texts: {t: t.replace("Ali Hassan", "[NAME]") for t in texts}
+        )
+
+    def redirect(self, reply: dict) -> dict:
+        output = reply["hookSpecificOutput"]
+        assert output["hookEventName"] == "PreToolUse"
+        return output["updatedInput"]
+
+    def test_a_protected_docx_is_read_as_redacted_text(self, project, make_docx):
+        docx = make_docx(project / "clients/cv.docx")
+        served = Path(self.redirect(hook.respond(self.pre_payload(docx)))["file_path"])
+        assert served != docx
+        assert "[NAME]" in served.read_text(encoding="utf-8")
+
+    def test_the_original_text_is_not_in_the_copy(self, project, make_docx):
+        docx = make_docx(project / "clients/cv.docx")
+        served = Path(self.redirect(hook.respond(self.pre_payload(docx)))["file_path"])
+        assert "Ali Hassan" not in served.read_text(encoding="utf-8")
+
+    @pytest.mark.skipif(shutil.which("pdftotext") is None, reason="pdftotext is not installed")
+    def test_a_protected_pdf_is_read_as_redacted_text(self, project, make_pdf):
+        pdf = make_pdf(project / "clients/intake.pdf")
+        served = Path(self.redirect(hook.respond(self.pre_payload(pdf)))["file_path"])
+        body = served.read_text(encoding="utf-8")
+        assert "[NAME]" in body and "Ali Hassan" not in body
+
+    def test_the_reply_does_not_grant_permission(self, project, make_docx):
+        """Saying "allow" here would wave the read past the prompt the user would
+        normally get. The swap does not need it."""
+        reply = hook.respond(self.pre_payload(make_docx(project / "clients/cv.docx")))
+        assert "permissionDecision" not in reply["hookSpecificOutput"]
+
+    def test_the_rest_of_the_call_is_left_alone(self, project, make_docx):
+        docx = make_docx(project / "clients/cv.docx")
+        updated = self.redirect(hook.respond(self.pre_payload(docx, offset=10, limit=5)))
+        assert updated["offset"] == 10 and updated["limit"] == 5
+
+    def test_an_unprotected_docx_is_not_touched(self, project, make_docx):
+        assert hook.respond(self.pre_payload(make_docx(project / "cv.docx"))) is None
+
+    def test_a_file_we_cannot_extract_is_still_denied(self, project):
+        blob = project / "clients/export.dat"
+        blob.write_bytes(bytes(range(256)) * 4)
+        reply = hook.respond(self.pre_payload(blob))
+        assert reply["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_a_failed_scan_denies_rather_than_serving_the_original(
+        self, project, make_docx, monkeypatch
+    ):
+        """The copy is only safe if it was redacted. Serving unredacted text here would
+        be worse than refusing, since it would look like the guard had done its job."""
+
+        def explode(texts):
+            raise ScanError("no API key")
+
+        monkeypatch.setattr(hook, "redact_all", explode)
+        reply = hook.respond(self.pre_payload(make_docx(project / "clients/cv.docx")))
+        assert reply["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_blocked_content_denies(self, project, make_docx, monkeypatch):
+        def blocked(texts):
+            raise hook.Blocked("the workspace guardrail is set to block this content")
+
+        monkeypatch.setattr(hook, "redact_all", blocked)
+        reply = hook.respond(self.pre_payload(make_docx(project / "clients/cv.docx")))
+        assert reply["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_cat_on_a_protected_docx_is_still_denied(self, project, make_docx):
+        """A path inside a shell command cannot be swapped: rewriting the middle of a
+        pipeline would change what the command does."""
+        docx = make_docx(project / "clients/cv.docx")
+        reply = hook.respond(
+            {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Bash",
+                "tool_input": {"command": f"cat {docx}"},
+            }
+        )
+        assert reply["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_a_document_that_reads_as_text_is_still_extracted(self, project, make_pdf):
+        """A metadata-heavy PDF can be pure ASCII for the whole sniff and still deliver
+        its pages as images. Trusting the sniff withheld a file we could have redacted."""
+        pdf = make_pdf(project / "clients/ascii.pdf")
+        padded = b"%PDF-1.4\n" + b"% padding comment\n" * 600 + pdf.read_bytes()[9:]
+        pdf.write_bytes(padded)
+
+        assert hook._reaches_the_model_as_text(str(pdf)) is True
+        served = self.redirect(hook.respond(self.pre_payload(pdf)))["file_path"]
+        assert Path(served) != pdf
+
+    def test_reading_the_copy_does_not_loop(self, project, make_docx):
+        """The copy lives outside any project, so the hook has nothing to say about it."""
+        docx = make_docx(project / "clients/cv.docx")
+        served = self.redirect(hook.respond(self.pre_payload(docx)))["file_path"]
+        assert hook.respond(self.pre_payload(served)) is None
+
+    def test_a_problem_is_written_to_the_log(self, project, make_docx, monkeypatch):
+        def explode(texts):
+            raise ScanError("no API key")
+
+        monkeypatch.setattr(hook, "redact_all", explode)
+        hook.respond(self.pre_payload(make_docx(project / "clients/cv.docx")))
+        assert "could not build a redacted copy" in constants.log_path().read_text()

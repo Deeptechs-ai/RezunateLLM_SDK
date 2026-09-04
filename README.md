@@ -12,6 +12,7 @@ Get an API key and learn more at [rezunatellm.com](https://rezunatellm.com).
 | Local regex guardrails (block / flag PII in inputs and outputs) | **Free** | Nothing — runs client-side |
 | Server-side PII detection | Hosted | Rezunate API key |
 | Prompt management with versioning  | Hosted | Rezunate API key |
+| `rezunate-guard` — PII redaction for Claude Code, no code required | Hosted | Rezunate API key |
 
 You only need a Rezunate API key for the hosted features.
 
@@ -98,9 +99,9 @@ You can also switch providers at call time on a single `Gateway`:
 ```python
 gateway = Gateway()
 
-gateway.chat_complete(req, provider="openai",    api_key=openai_key)
+gateway.chat_complete(req, provider="openai", api_key=openai_key)
 gateway.chat_complete(req, provider="anthropic", api_key=anthropic_key)
-gateway.chat_complete(req, provider="google",    api_key=google_key)
+gateway.chat_complete(req, provider="google", api_key=google_key)
 ```
 
 ### Request Parameters
@@ -111,8 +112,8 @@ gateway.chat_complete(req, provider="google",    api_key=google_key)
 ChatCompletionRequest(
     model="gpt-4o",
     messages=[
-        Message(role="system",    content="You are concise."),
-        Message(role="user",      content="Summarize the last commit."),
+        Message(role="system", content="You are concise."),
+        Message(role="user", content="Summarize the last commit."),
     ],
     temperature=0.2,
     max_tokens=500,
@@ -183,7 +184,7 @@ response = gateway.chat_complete(
         model="claude-sonnet-4-5",
         messages=messages,
         tools=tools,
-        tool_choice="auto",   # "auto" | "required" | "none" | {"type": "function", "function": {"name": "get_weather"}}
+        tool_choice="auto",  # "auto" | "required" | "none" | {"type": "function", "function": {"name": "get_weather"}}
         max_tokens=300,
     )
 )
@@ -191,7 +192,7 @@ response = gateway.chat_complete(
 choice = response.choices[0]
 if choice.finish_reason == "tool_calls":
     call = choice.message.tool_calls[0]
-    print(call.function.name)       # "get_weather"
+    print(call.function.name)  # "get_weather"
     print(call.function.arguments)  # '{"city": "Tokyo"}'  (a JSON string)
 ```
 
@@ -201,7 +202,7 @@ Run the tool, then send the result back as a `tool` message to get the final ans
 import json
 
 args = json.loads(call.function.arguments)
-result = f"Sunny, 22C in {args['city']}"   # your real tool goes here
+result = f"Sunny, 22C in {args['city']}"  # your real tool goes here
 
 messages += [
     Message(role="assistant", tool_calls=choice.message.tool_calls),
@@ -312,9 +313,9 @@ result = gateway.guardrails.scan("My SSN is 123-45-6789 and my email is alex@exa
 for entity in result.entities:
     print(f"{entity.label}: {entity.text!r} (score={entity.score:.2f})")
 
-print("action:",  result.action)    # action taken per workspace config
-print("blocked:", result.blocked)   # whether the request was blocked
-print("text:",    result.text)      # processed text (e.g. with PII redacted)
+print("action:", result.action)  # action taken per workspace config
+print("blocked:", result.blocked)  # whether the request was blocked
+print("text:", result.text)  # processed text (e.g. with PII redacted)
 ```
 
 #### Automatic PII guardrails on input and output
@@ -331,13 +332,13 @@ from rezunate_llm_sdk import Gateway, ServerGuardrailsError
 gateway = Gateway(
     default_provider="openai",
     default_api_key="your-openai-key",
-    server_guardrails=True,                       # scan input AND output via hosted PII service
+    server_guardrails=True,  # scan input AND output via hosted PII service
     REZUNATE_LLM_API_KEY="your-rezunate-api-key",
 )
 
 try:
     response = gateway.chat_complete(request)
-    print(response.choices[0].message.content)    # PII redacted by the server
+    print(response.choices[0].message.content)  # PII redacted by the server
 except ServerGuardrailsError as e:
     print(f"Blocked on {e.direction.name} — detected {[ent.label for ent in e.entities]}")
 ```
@@ -386,11 +387,68 @@ response = gateway.chat_complete(
         model="claude-sonnet-4-5",
         messages=[
             Message(role="system", content=system_prompt),
-            Message(role="user",   content="Where's my order?"),
+            Message(role="user", content="Where's my order?"),
         ],
     )
 )
 ```
+
+## Claude Code PII Guard
+
+`rezunate-guard` redacts PII from your files **before Claude Code sends them to the
+model**. It needs no code — you point it at the folders holding personal data and it
+works from then on.
+
+```bash
+cd your-project
+rezunate-guard install     # register the hooks with Claude Code
+rezunate-guard login       # save your Rezunate API key
+rezunate-guard init        # write .rezunate-guard.yaml
+rezunate-guard status      # confirm protection is actually on
+```
+
+Then list the folders to protect:
+
+```yaml
+# .rezunate-guard.yaml
+scan:
+  - clients
+  - data/patients
+  - /mnt/share/case-files    # absolute paths work too
+```
+
+Everything inside a listed folder is protected, at any depth. When Claude reads one of
+those files, the personal data your workspace is configured to detect is replaced with
+placeholders before the model sees them:
+
+```
+Ali Hassan emailed Sara Khan, and Sara Khan replied to Ali Hassan
+[PERSON_NAME_a786] [PERSON_NAME_f54e] emailed [PERSON_NAME_3225] [PERSON_NAME_f4f5], and [PERSON_NAME_3225] [PERSON_NAME_f4f5] replied to [PERSON_NAME_a786] [PERSON_NAME_f54e]
+```
+
+The same value always gets the same placeholder, across files and sessions, so the
+text still reads sensibly and Claude can tell the two people apart. It matches on the
+value, not the person — `Ali Hassan` and `Hassan` are two different values and get two
+different placeholders. Placeholders come from a key that never leaves your machine.
+
+**Only the entity types enabled for your workspace are redacted.** If phone numbers are
+off in your guardrail settings, a phone number in a protected file reaches the model in
+the clear. Check what is enabled before relying on this.
+
+| Command | What it does |
+|---|---|
+| `rezunate-guard install` | register the hooks in Claude Code's `settings.json` |
+| `rezunate-guard login` | save your API key to `~/.rezunate/credentials` |
+| `rezunate-guard init` | write a `.rezunate-guard.yaml` template here |
+| `rezunate-guard uninstall` | remove them again, leaving other hooks alone |
+| `rezunate-guard status` | report whether anything is actually being protected |
+| `rezunate-guard check <paths>` | show whether given paths would be scanned, and why |
+
+**Nothing is scanned unless you name it**, and each scanned file is a billable API call,
+so list only what holds personal data. If the config cannot be read — a typo in the YAML,
+a folder that isn't there — the guard protects nothing and writes the reason to
+`~/.rezunate/guard.log`. `rezunate-guard status` reports the same thing and exits
+non-zero, so check it after editing the config.
 
 ## Environment Variables
 
@@ -401,3 +459,6 @@ response = gateway.chat_complete(
 | `ANTHROPIC_AI_API_KEY` | Anthropic provider key — used by your application code |
 | `GOOGLE_API_KEY` | Google Gemini provider key — used by your application code |
 | `GUARDRAILS_FILE_PATH` | Optional path to a local guardrails YAML config; loaded automatically when set |
+| `ROUTER_BASE_URL` | Rezunate API base URL (default `https://rezunatellm.com`) |
+| `REZUNATE_HOME` | Where `rezunate-guard` keeps its key and log (default `~/.rezunate`) |
+| `CLAUDE_CONFIG_DIR` | Where `rezunate-guard install` writes hook settings (default `~/.claude`) |

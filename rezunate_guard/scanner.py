@@ -12,7 +12,6 @@ from urllib.request import Request, urlopen
 from rezunate_guard import constants
 
 API_PATH = "/api/v1/guardrails/scan-batch"
-DEFAULT_BASE_URL = "https://rezunatellm.com"
 
 #: How long one request may take.
 TIMEOUT_SECONDS = 180
@@ -132,7 +131,7 @@ def _credentials() -> tuple[str, str]:
         ScanError: If no key is set anywhere.
     """
     api_key = os.environ.get(constants.API_KEY_ENV, "").strip() or stored_key()
-    base_url = os.environ.get(constants.BASE_URL_ENV, DEFAULT_BASE_URL).rstrip("/")
+    base_url = os.environ.get(constants.BASE_URL_ENV, constants.DEFAULT_BASE_URL).rstrip("/")
     if not api_key:
         raise ScanError(f"no API key; run `rezunate-guard login` or set {constants.API_KEY_ENV}")
     return api_key, base_url

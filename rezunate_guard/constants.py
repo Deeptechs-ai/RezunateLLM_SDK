@@ -11,6 +11,7 @@ HOME_ENV = "REZUNATE_HOME"
 API_KEY_ENV = "REZUNATE_LLM_API_KEY"
 BASE_URL_ENV = "ROUTER_BASE_URL"
 CLAUDE_CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR"
+DEFAULT_BASE_URL = "https://rezunatellm.com"
 
 
 def rezunate_home() -> Path:
@@ -43,3 +44,12 @@ def log_path() -> Path:
 def user_config_path() -> Path:
     """Return the config used for files that belong to no project."""
     return rezunate_home() / "config.yaml"
+
+
+def redacted_copies_dir() -> Path:
+    """Return the directory holding redacted copies for unreadable files.
+
+    Deliberately outside any project, so the redacted copy is never itself protected and the
+    hook cannot end up redacting its own output.
+    """
+    return rezunate_home() / "redacted-copies"

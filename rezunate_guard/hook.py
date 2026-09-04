@@ -10,7 +10,9 @@ import re
 import sys
 from typing import Any
 
+from rezunate_guard import extract, log, redacted_copy
 from rezunate_guard.config import should_scan
+from rezunate_guard.extract import ExtractionError
 from rezunate_guard.masking import MaskingError, mask, placeholder_key
 from rezunate_guard.scanner import ScanError, scan_many
 
@@ -150,6 +152,29 @@ def _tool_path(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def _named_file(payload: dict[str, Any]) -> tuple[str, str] | None:
+    """Return the key naming the file the tool was pointed at, and that file's path.
+
+    Only a file the tool was handed directly can be swapped for another one. A path
+    picked out of a shell command cannot: rewriting `cat` in the middle of a pipeline
+    would change what the command means.
+
+    Returns:
+        `(key, absolute_path)`, or None if the tool named no file.
+    """
+    tool_input = payload.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return None
+
+    cwd = payload.get("cwd")
+    base = cwd if isinstance(cwd, str) else os.getcwd()
+    for key in PATH_KEYS:
+        value = tool_input.get(key)
+        if isinstance(value, str) and value:
+            return key, os.path.join(base, os.path.expanduser(value))
+    return None
+
+
 def _implicated_paths(payload: dict[str, Any]) -> list[str]:
     """Find every path the call may have touched.
 
@@ -245,17 +270,84 @@ def _deny(reason: str) -> dict[str, Any]:
     }
 
 
-def _before_tool(payload: dict[str, Any]) -> dict[str, Any] | None:
-    """Refuse calls whose content could not be redacted afterwards.
+def _read_instead(updated_input: dict[str, Any], reason: str) -> dict[str, Any]:
+    """Build the PreToolUse reply that points the call at a different file.
+
+    No permission decision is included on purpose. Saying "allow" here would wave the
+    read past whatever the user normally gets asked, which is not ours to decide; the
+    swap works on its own.
+    """
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecisionReason": reason,
+            "updatedInput": updated_input,
+        }
+    }
+
+
+def _serve_redacted(payload: dict[str, Any], key: str, path: str) -> dict[str, Any] | None:
+    """Point the read at a redacted copy of a file the model cannot be shown.
+
+    Args:
+        payload: The hook payload.
+        key: The tool input key naming the file.
+        path: The file itself.
 
     Returns:
-        A deny reply, or None to allow the call.
+        A reply redirecting the read, or None if no redacted copy could be made, which
+        leaves the caller to refuse the read instead.
     """
+    if not extract.can_extract(path):
+        return None
+
+    try:
+        text = extract.extract_text(path)
+        copy_path = redacted_copy.write(path, redact_all([text])[text])
+    except (ExtractionError, ScanError, Blocked, MaskingError, OSError) as exc:
+        log.problem(path, f"could not build a redacted copy: {exc}")
+        return None
+
+    # Only if REZUNATE_HOME has been pointed inside a protected folder. Reading the copy
+    # would then land back here, and the second pass would have nothing left to extract.
+    if should_scan(copy_path):
+        log.problem(copy_path, "the redacted copy is itself in a protected folder")
+        return None
+
+    return _read_instead(
+        {**payload["tool_input"], key: str(copy_path)},
+        f"{os.path.basename(path)} is protected, so rezunate-guard extracted its text, "
+        "redacted it, and pointed this read at the copy.",
+    )
+
+
+def _before_tool(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Handle calls whose content could not be redacted afterwards.
+
+    A file the tool was handed directly is swapped for a redacted copy where one can be
+    made. Everything else is refused, since its content would reach the model somewhere
+    we never see.
+
+    Returns:
+        A redirect or deny reply, or None to let the call run untouched.
+    """
+    named = _named_file(payload)
+
     for path in _implicated_paths(payload):
         if not os.path.isfile(path):
             continue  # a folder, or a path that does not exist yet
-        if not should_scan(path) or _reaches_the_model_as_text(path):
+        if not should_scan(path):
             continue
+        if not extract.can_extract(path) and _reaches_the_model_as_text(path):
+            continue
+
+        # realpath rather than samefile, which raises when the tool named a path that is
+        # not there. Both sides go through it, so a symlink still matches its target.
+        if named is not None and os.path.realpath(named[1]) == os.path.realpath(path):
+            redirected = _serve_redacted(payload, named[0], path)
+            if redirected is not None:
+                return redirected
+
         return _deny(
             f"{os.path.basename(path)} is protected, and its contents cannot be "
             "redacted after reading: they reach the model outside the tool result, "
@@ -465,7 +557,7 @@ def _reason_for(exc: BaseException) -> str:
         Our own messages, which explain themselves and never carry content. Anything
         else gives only its type name, since the message could hold a piece of the file.
     """
-    if isinstance(exc, (ScanError, Blocked, MaskingError)):
+    if isinstance(exc, ScanError | Blocked | MaskingError):
         return str(exc)
     return f"rezunate-guard failed unexpectedly ({type(exc).__name__})"
 
