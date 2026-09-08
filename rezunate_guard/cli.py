@@ -110,6 +110,7 @@ def command_login(args: argparse.Namespace) -> int:
     """
     key = (args.key or "").strip()
     if not key:
+        print(f"No key yet? Create one at {constants.api_keys_url()}")
         try:
             key = input("API key: ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -117,7 +118,7 @@ def command_login(args: argparse.Namespace) -> int:
             return 1
 
     if not key:
-        print("no key given", file=sys.stderr)
+        print(f"no key given; create one at {constants.api_keys_url()}", file=sys.stderr)
         return 1
 
     path = constants.credentials_path()

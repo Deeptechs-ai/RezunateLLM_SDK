@@ -169,6 +169,16 @@ class TestLogin:
         monkeypatch.setattr("builtins.input", lambda *a: "")
         assert cli.main(["login"]) == 1
 
+    def test_points_at_the_dashboard_when_prompting(self, home, project, monkeypatch, capsys):
+        """Someone running `login` without a key needs to be told where to get one."""
+        monkeypatch.setattr("builtins.input", lambda *a: "sk-test-123")
+        assert cli.main(["login"]) == 0
+        assert constants.api_keys_url() in capsys.readouterr().out
+
+    def test_the_dashboard_url_follows_the_base_url(self, home, project, monkeypatch):
+        monkeypatch.setenv(constants.BASE_URL_ENV, "http://localhost:8000/")
+        assert constants.api_keys_url() == "http://localhost:8000/dashboard/apikeys"
+
     def test_overwrites_a_previous_key(self, home, project):
         cli.main(["login", "old"])
         cli.main(["login", "new"])

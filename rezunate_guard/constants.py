@@ -11,7 +11,14 @@ HOME_ENV = "REZUNATE_HOME"
 API_KEY_ENV = "REZUNATE_LLM_API_KEY"
 BASE_URL_ENV = "REZUNATE_LLM_BASE_URL"
 DEFAULT_BASE_URL = "https://rezunatellm.com"
+API_KEYS_PATH = "/dashboard/apikeys"
 CLAUDE_CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR"
+
+
+def api_keys_url() -> str:
+    """Return the page where a user creates an API key."""
+    base = os.environ.get(BASE_URL_ENV, DEFAULT_BASE_URL).rstrip("/")
+    return f"{base}{API_KEYS_PATH}"
 
 
 def rezunate_home() -> Path:

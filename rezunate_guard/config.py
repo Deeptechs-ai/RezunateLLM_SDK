@@ -106,7 +106,7 @@ def _as_directories(value: object, root: Path) -> tuple[Path, ...]:
     """
     if isinstance(value, str):
         entries = [value]
-    elif isinstance(value, (list, tuple)):
+    elif isinstance(value, list | tuple):
         entries = []
         for item in value:
             if item is None:
