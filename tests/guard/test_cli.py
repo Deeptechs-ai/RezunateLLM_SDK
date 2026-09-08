@@ -18,8 +18,8 @@ def home(tmp_path, monkeypatch):
     """A fake home for both `~/.claude` and `~/.rezunate`."""
     claude = tmp_path / "claude"
     claude.mkdir()
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude))
-    monkeypatch.setenv("REZUNATE_HOME", str(tmp_path / "rezunate"))
+    monkeypatch.setenv(constants.CLAUDE_CONFIG_DIR_ENV, str(claude))
+    monkeypatch.setenv(constants.HOME_ENV, str(tmp_path / "rezunate"))
     return tmp_path
 
 
@@ -214,13 +214,13 @@ class TestStatus:
         assert "clients" in out
 
     def test_an_env_key_counts(self, home, project, monkeypatch, capsys):
-        monkeypatch.setenv("REZUNATE_LLM_API_KEY", "from-env")
+        monkeypatch.setenv(constants.API_KEY_ENV, "from-env")
         cli.main(["install"])
         (project / "clients").mkdir(exist_ok=True)
         (project / constants.CONFIG_FILENAME).write_text("scan:\n  - clients\n")
 
         assert cli.main(["status"]) == 0
-        assert "REZUNATE_LLM_API_KEY" in capsys.readouterr().out
+        assert constants.API_KEY_ENV in capsys.readouterr().out
 
 
 class TestCheck:

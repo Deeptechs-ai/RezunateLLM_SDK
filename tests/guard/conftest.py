@@ -12,7 +12,7 @@ from rezunate_guard import constants
 @pytest.fixture(autouse=True)
 def isolated_home(tmp_path_factory, monkeypatch):
     home = tmp_path_factory.mktemp("rezunate-home")
-    monkeypatch.setenv("REZUNATE_HOME", str(home))
+    monkeypatch.setenv(constants.HOME_ENV, str(home))
     monkeypatch.delenv(constants.API_KEY_ENV, raising=False)
     return home
 

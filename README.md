@@ -459,6 +459,6 @@ non-zero, so check it after editing the config.
 | `ANTHROPIC_AI_API_KEY` | Anthropic provider key — used by your application code |
 | `GOOGLE_API_KEY` | Google Gemini provider key — used by your application code |
 | `GUARDRAILS_FILE_PATH` | Optional path to a local guardrails YAML config; loaded automatically when set |
-| `ROUTER_BASE_URL` | Rezunate API base URL (default `https://rezunatellm.com`) |
+| `REZUNATE_LLM_BASE_URL` | Rezunate API base URL (default `https://rezunatellm.com`) |
 | `REZUNATE_HOME` | Where `rezunate-guard` keeps its key and log (default `~/.rezunate`) |
 | `CLAUDE_CONFIG_DIR` | Where `rezunate-guard install` writes hook settings (default `~/.claude`) |
