@@ -5,6 +5,7 @@ from pathlib import Path
 
 import yaml
 
+from rezunate_llm_sdk.masking import MaskVault
 from rezunate_llm_sdk.models import (
     DetectedEntity,
     GuardrailAction,
@@ -87,6 +88,7 @@ def check_guardrails(
     text: str,
     config: GuardrailsConfig,
     direction: GuardrailDirection,
+    vault: MaskVault | None = None,
 ) -> tuple[str, list[GuardrailViolation]]:
     """Check text against all guardrail rules and apply redactions.
 
@@ -98,6 +100,9 @@ def check_guardrails(
         text: The text to check.
         config: Guardrails configuration with rules.
         direction: Either "input" or "output", for error reporting.
+        vault: Optional masking vault. With one, ``redact`` rules emit unique,
+            restorable placeholders instead of the static ``replacement``.
+            Without one (default), redaction stays one-way as before.
 
     Returns:
         A tuple of ``(redacted_text, violations)``. ``redacted_text`` equals
@@ -132,6 +137,15 @@ def check_guardrails(
             )
 
         if rule.action == GuardrailAction.REDACT:
-            redacted = re.sub(rule.pattern, rule.replacement, redacted)
+            if vault is not None:
+                # Bind ``label`` as a default so the substitution callback does
+                # not capture the loop variable.
+                redacted = re.sub(
+                    rule.pattern,
+                    lambda m, label=rule.name: vault.assign(label, m.group(0)),
+                    redacted,
+                )
+            else:
+                redacted = re.sub(rule.pattern, rule.replacement, redacted)
 
     return redacted, violations
