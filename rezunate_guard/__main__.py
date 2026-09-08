@@ -1,8 +1,4 @@
-"""Entry point for `python -m rezunate_guard`.
-
-The hook is registered by absolute command rather than by name, so it keeps working
-wherever the package is installed. See `cli.HOOK_COMMAND`.
-"""
+"""Entry point for rezunate_guard.. See `cli.HOOK_COMMAND`."""
 
 import sys
 

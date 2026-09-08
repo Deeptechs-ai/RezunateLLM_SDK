@@ -245,7 +245,7 @@ def resolve_config(file_path: Path) -> GuardConfig:
     return GuardConfig(root=filesystem_root)
 
 
-def decide(file_path: Path | str, config: GuardConfig | None = None) -> Decision:
+def scan_decision(file_path: Path | str, config: GuardConfig | None = None) -> Decision:
     """Decide whether a file needs scanning.
 
     Nothing is scanned until the user lists a folder, since every scan is billable. The
@@ -273,7 +273,7 @@ def decide(file_path: Path | str, config: GuardConfig | None = None) -> Decision
         # Almost certainly an --add-dir file, so let its own config answer.
         own_config = resolve_config(path)
         if own_config.root != config.root:
-            decision = decide(path, own_config)
+            decision = scan_decision(path, own_config)
             return Decision(decision.should_scan, f"outside config root; {decision.reason}")
         return Decision(False, "outside config root and no config of its own")
 
@@ -283,5 +283,5 @@ def decide(file_path: Path | str, config: GuardConfig | None = None) -> Decision
 
 
 def should_scan(file_path: Path | str, config: GuardConfig | None = None) -> bool:
-    """Return just the answer from `decide`, for callers that don't need the reason."""
-    return decide(file_path, config).should_scan
+    """Return just the answer from `scan_decision`, for callers that don't need the reason."""
+    return scan_decision(file_path, config).should_scan

@@ -9,10 +9,10 @@ from rezunate_guard import constants
 from rezunate_guard.config import (
     CONFIG_TEMPLATE,
     GuardConfig,
-    decide,
     find_config_file,
     load_config,
     resolve_config,
+    scan_decision,
     should_scan,
 )
 
@@ -42,7 +42,7 @@ class TestUnconfigured:
 
     def test_inert_decision_explains_itself(self, tmp_path):
         target = write(tmp_path, "clients/acme.md")
-        assert "no folders configured" in decide(target).reason
+        assert "no folders configured" in scan_decision(target).reason
 
     def test_configured_guard_is_not_inert(self, tmp_path):
         config = config_for(tmp_path, "scan:\n  - clients\n")
@@ -110,8 +110,8 @@ class TestListedFolders:
 
     def test_decisions_explain_themselves(self, tmp_path):
         config = config_for(tmp_path, "scan:\n  - clients\n")
-        assert "in a protected folder" in decide(tmp_path / "clients/a.md", config).reason
-        assert "not in a protected folder" in decide(tmp_path / "src/a.py", config).reason
+        assert "in a protected folder" in scan_decision(tmp_path / "clients/a.md", config).reason
+        assert "not in a protected folder" in scan_decision(tmp_path / "src/a.py", config).reason
 
 
 class TestAbsoluteFolders:
@@ -271,13 +271,13 @@ class TestPathResolution:
         write(other, constants.CONFIG_FILENAME, "scan:\n  - client-data\n")
         outside = write(other, "client-data/notes.md")
 
-        assert decide(outside, config).should_scan is True
+        assert scan_decision(outside, config).should_scan is True
 
     def test_file_outside_any_config_is_not_scanned(self, tmp_path):
         project = tmp_path / "project"
         config = config_for(project, "scan:\n  - '.'\n")
 
-        decision = decide(write(tmp_path / "other", "notes.md"), config)
+        decision = scan_decision(write(tmp_path / "other", "notes.md"), config)
         assert decision.should_scan is False
         assert "outside config root" in decision.reason
 
@@ -291,7 +291,7 @@ class TestPathResolution:
         write(other, constants.CONFIG_FILENAME, "scan:\n  - client-data\n")
         outside = write(other, "client-data/notes.md")
 
-        assert decide(outside, config).should_scan is True
+        assert scan_decision(outside, config).should_scan is True
 
     def test_two_projects_obey_their_own_configs(self, tmp_path):
         strict = tmp_path / "strict"
@@ -304,8 +304,8 @@ class TestPathResolution:
 
     def test_decision_always_reports_a_reason(self, tmp_path):
         config = config_for(tmp_path, "scan:\n  - clients\n")
-        assert decide(write(tmp_path, "clients/a.md"), config).reason
-        assert decide(write(tmp_path, "src/a.py"), config).reason
+        assert scan_decision(write(tmp_path, "clients/a.md"), config).reason
+        assert scan_decision(write(tmp_path, "src/a.py"), config).reason
 
 
 class TestResolveConfig:

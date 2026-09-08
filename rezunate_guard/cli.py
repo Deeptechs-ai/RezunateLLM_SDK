@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from rezunate_guard import __version__, constants
-from rezunate_guard.config import CONFIG_TEMPLATE, decide, resolve_config
+from rezunate_guard.config import CONFIG_TEMPLATE, resolve_config, scan_decision
 from rezunate_guard.hook import main as hook_main
 from rezunate_guard.scanner import stored_key
 
@@ -432,7 +432,7 @@ def command_check(args: argparse.Namespace) -> int:
     """Print whether each given path would be scanned, and why."""
     for name in args.paths:
         path = Path(name).expanduser()
-        decision = decide(path)
+        decision = scan_decision(path)
         print(f"{'scan' if decision.should_scan else 'skip':5} {path}  ({decision.reason})")
     return 0
 
