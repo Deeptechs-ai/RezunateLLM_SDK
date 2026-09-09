@@ -20,7 +20,7 @@ HOOK_EVENTS = ("PreToolUse", "PostToolUse")
 #: Every tool
 HOOK_MATCHER = "*"
 
-#: Identifies our entries, so uninstall never disturbs hooks someone else registered.
+#: Identifies Rezunate's entries, so uninstall never disturbs hooks someone else registered.
 HOOK_MARKERS = ("rezunate_guard", "rezunate-guard")
 
 
@@ -80,8 +80,8 @@ def _write_json(path: Path, data: dict) -> None:
     os.replace(temporary_path, path)
 
 
-def _entry_is_ours(entry: object) -> bool:
-    """Return True if a hook entry was registered by us, so uninstall leaves others be."""
+def _is_rezunate_hook_entry(entry: object) -> bool:
+    """Return True if a hook entry was registered by Rezunate, so uninstall leaves others be."""
     if not isinstance(entry, dict):
         return False
     return any(
@@ -92,7 +92,7 @@ def _entry_is_ours(entry: object) -> bool:
 
 
 def _installed_events(path: Path) -> list[str]:
-    """Return which of our hook events are registered in a settings file.
+    """Return which of Rezunate's hook events are registered in a settings file.
 
     PreToolUse: refuses reads whose contents could not be redacted;
     PostToolUse: redacts what a tool returned.
@@ -103,7 +103,7 @@ def _installed_events(path: Path) -> list[str]:
     return [
         event
         for event in HOOK_EVENTS
-        if isinstance(hooks.get(event), list) and any(map(_entry_is_ours, hooks[event]))
+        if isinstance(hooks.get(event), list) and any(map(_is_rezunate_hook_entry, hooks[event]))
     ]
 
 
@@ -199,7 +199,7 @@ def command_install(args: argparse.Namespace) -> int:
             print(f"{path} has a malformed {event} list; fix it first", file=sys.stderr)
             return 1
 
-        if any(_entry_is_ours(entry) for entry in entries):
+        if any(_is_rezunate_hook_entry(entry) for entry in entries):
             continue
 
         entries.append(
@@ -220,7 +220,7 @@ def command_install(args: argparse.Namespace) -> int:
 
 
 def command_uninstall(args: argparse.Namespace) -> int:
-    """Remove our hook entries from `settings.json`, leaving any others untouched."""
+    """Remove Rezunate's hook entries from `settings.json`, leaving any others untouched."""
     path = settings_path(args.scope)
     settings = _read_json(path)
     hooks = settings.get("hooks")
@@ -238,7 +238,7 @@ def command_uninstall(args: argparse.Namespace) -> int:
         if not isinstance(entries, list):
             continue
 
-        remaining = [entry for entry in entries if not _entry_is_ours(entry)]
+        remaining = [entry for entry in entries if not _is_rezunate_hook_entry(entry)]
         if len(remaining) == len(entries):
             continue
 
