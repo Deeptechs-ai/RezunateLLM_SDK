@@ -24,6 +24,32 @@ HOOK_MATCHER = "*"
 HOOK_MARKERS = ("rezunate_guard", "rezunate-guard")
 
 
+#: ANSI codes for the words `status` is really answering with.
+_RED = "31"
+_GREEN = "32"
+_YELLOW = "33"
+_DIM = "2"
+
+
+def _paint(text: str, code: str) -> str:
+    """Colour a word, or leave it alone when colour would be noise.
+
+    Args:
+        text: What to colour.
+        code: An ANSI code, such as `_RED`.
+
+    Returns:
+        The text, wrapped in the colour only when writing to a terminal that wants it.
+    """
+    # Ordered cheapest first: two dict lookups before asking the OS about the stream.
+    change_colour = (
+        os.environ.get("NO_COLOR") is None
+        and os.environ.get("TERM") != "dumb"
+        and sys.stdout.isatty()
+    )
+    return f"\033[{code}m{text}\033[0m" if change_colour else text
+
+
 def hook_command() -> str:
     """Return the command to register, bound to this interpreter.
 
@@ -118,11 +144,13 @@ def command_login(args: argparse.Namespace) -> int:
         try:
             key = input("API key: ").strip()
         except (EOFError, KeyboardInterrupt):
-            print("\ncancelled", file=sys.stderr)
+            print(_paint("\ncancelled", _RED), file=sys.stderr)
             return 1
 
     if not key:
-        print(f"no key given; create one at {constants.api_keys_url()}", file=sys.stderr)
+        print(
+            _paint(f"no key given; create one at {constants.api_keys_url()}", _RED), file=sys.stderr
+        )
         return 1
 
     path = constants.credentials_path()
@@ -131,7 +159,7 @@ def command_login(args: argparse.Namespace) -> int:
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
         handle.write(key + "\n")
 
-    print(f"key saved to {path}")
+    print(f"{_paint('key saved', _GREEN)} to {path}")
     print("this key is not verified until the first scan; run `rezunate-guard status`")
     return 0
 
@@ -144,13 +172,13 @@ def command_init(args: argparse.Namespace) -> int:
     """
     path = Path.cwd() / constants.CONFIG_FILENAME
     if path.exists() and not args.force:
-        print(f"{path} already exists; pass --force to overwrite", file=sys.stderr)
+        print(_paint(f"{path} already exists; pass --force to overwrite", _RED), file=sys.stderr)
         return 1
 
     path.write_text(CONFIG_TEMPLATE, encoding="utf-8")
-    print(f"wrote {path}")
+    print(f"{_paint('wrote', _GREEN)} {path}")
     print()
-    print("Nothing is protected yet. Edit the `scan:` list, then run:")
+    print(_paint("Nothing is protected yet.", _YELLOW) + " Edit the `scan:` list, then run:")
     print("  rezunate-guard status")
     return 0
 
@@ -189,14 +217,19 @@ def command_install(args: argparse.Namespace) -> int:
 
     hooks = settings.setdefault("hooks", {})
     if not isinstance(hooks, dict):
-        print(f"{path} has a 'hooks' key that is not an object; fix it first", file=sys.stderr)
+        print(
+            _paint(f"{path} has a 'hooks' key that is not an object; fix it first", _RED),
+            file=sys.stderr,
+        )
         return 1
 
     changes: list[str] = []
     for event in HOOK_EVENTS:
         entries = hooks.setdefault(event, [])
         if not isinstance(entries, list):
-            print(f"{path} has a malformed {event} list; fix it first", file=sys.stderr)
+            print(
+                _paint(f"{path} has a malformed {event} list; fix it first", _RED), file=sys.stderr
+            )
             return 1
 
         if any(_is_rezunate_hook_entry(entry) for entry in entries):
@@ -214,7 +247,7 @@ def command_install(args: argparse.Namespace) -> int:
     _write_json(path, settings)
     for change in changes:
         print(f"  {change}")
-    print(f"hook installed in {path}")
+    print(f"{_paint('hook installed', _GREEN)} in {path}")
     print("Restart Claude Code, or start a new session, for it to take effect.")
     return 0
 
@@ -256,8 +289,8 @@ def command_uninstall(args: argparse.Namespace) -> int:
         del settings["hooks"]
 
     _write_json(path, settings)
-    print(f"hook removed from {path}")
-    print("Files are no longer redacted. Restart Claude Code to apply.")
+    print(f"{_paint('hook removed', _YELLOW)} from {path}")
+    print(_paint("Files are no longer redacted.", _YELLOW) + " Restart Claude Code to apply.")
     return 0
 
 
@@ -268,11 +301,11 @@ def _report_key() -> list[str]:
         Problems found, for the caller to summarise. Empty when the key is fine.
     """
     if os.environ.get(constants.API_KEY_ENV, "").strip():
-        print(f"  key        set via {constants.API_KEY_ENV}")
+        print(f"  key        {_paint('set', _GREEN)} via {constants.API_KEY_ENV}")
     elif stored_key():
-        print(f"  key        saved in {constants.credentials_path()}")
+        print(f"  key        {_paint('saved', _GREEN)} in {constants.credentials_path()}")
     else:
-        print("  key        MISSING")
+        print(f"  key        {_paint('MISSING', _RED)}")
         return ["No API key. Run `rezunate-guard login`. Protected files will be withheld."]
     return []
 
@@ -290,14 +323,14 @@ def _report_hook() -> list[str]:
     }
 
     if not installed:
-        print("  hook       NOT INSTALLED")
+        print(f"  hook       {_paint('NOT INSTALLED', _RED)}")
         return [
             "The hook is not registered. Run `rezunate-guard install`. Nothing is being redacted."
         ]
 
     problems = []
     for path, events in installed.items():
-        print(f"  hook       installed in {path} ({', '.join(events)})")
+        print(f"  hook       {_paint('installed', _GREEN)} in {path} ({', '.join(events)})")
         missing = [event for event in HOOK_EVENTS if event not in events]
         if missing:
             problems.append(
@@ -318,7 +351,7 @@ def _report_config() -> list[str]:
     config = resolve_config(Path.cwd() / "x")
 
     if config.source is None:
-        print("  config     none found")
+        print(f"  config     {_paint('none found', _RED)}")
         return [
             f"No {constants.CONFIG_FILENAME} in this directory or its parents. "
             "Run `rezunate-guard init`. Nothing is being scanned."
@@ -327,7 +360,7 @@ def _report_config() -> list[str]:
     print(f"  config     {config.source}")
 
     if config.error:
-        print(f"  ERROR      {config.error}")
+        print(f"  {_paint('ERROR', _RED)}      {config.error}")
         return [f"The config could not be read: {config.error}. Nothing is being scanned."]
 
     if config.protects_nothing:
@@ -339,7 +372,7 @@ def _report_config() -> list[str]:
     missing = []
     for directory in config.scan:
         exists = directory.is_dir()
-        print(f"  scan       {directory}{'' if exists else '   MISSING'}")
+        print(f"  scan       {directory}" + ("" if exists else f"   {_paint('MISSING', _RED)}"))
         if not exists:
             missing.append(directory)
 
@@ -364,11 +397,12 @@ def command_status(args: argparse.Namespace) -> int:
     problems = _report_key() + _report_hook() + _report_config()
     if not problems:
         print()
-        print("Protection is active.")
+        print(_paint("Protection is active.", _GREEN))
         return 0
 
     print()
-    print("Not protecting anything yet:" if len(problems) > 1 else "One thing to fix:")
+    heading = "Not protecting anything yet:" if len(problems) > 1 else "One thing to fix:"
+    print(_paint(heading, _RED))
     for problem in problems:
         print(f"  - {problem}")
     return 1
@@ -379,7 +413,9 @@ def command_check(args: argparse.Namespace) -> int:
     for name in args.paths:
         path = Path(name).expanduser()
         decision = scan_decision(path)
-        print(f"{'scan' if decision.should_scan else 'skip':5} {path}  ({decision.reason})")
+        verdict = "scan" if decision.should_scan else "skip"
+        painted = _paint(f"{verdict:5}", _YELLOW if decision.should_scan else _DIM)
+        print(f"{painted} {path}  ({decision.reason})")
     return 0
 
 
