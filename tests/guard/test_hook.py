@@ -776,11 +776,19 @@ class TestServingARedactedCopy:
         body = served.read_text(encoding="utf-8")
         assert "[NAME]" in body and "Ali Hassan" not in body
 
-    def test_the_reply_does_not_grant_permission(self, project, make_docx):
-        """Saying "allow" here would wave the read past the prompt the user would
-        normally get. The swap does not need it."""
+    def test_the_reply_approves_the_copy(self, project, make_docx):
+        """Left open, the copy goes through the usual permission check and is refused for
+        sitting outside the working directories. It is a file we wrote ourselves."""
         reply = hook.respond(self.pre_payload(make_docx(project / "clients/cv.docx")))
-        assert "permissionDecision" not in reply["hookSpecificOutput"]
+        assert reply["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+    def test_the_redirect_does_not_read_as_a_failure(self, project, make_docx):
+        """Told its read was intercepted, the model reports the file as blocked and offers
+        to work around the guard. It needs to hear that the read succeeded."""
+        reply = hook.respond(self.pre_payload(make_docx(project / "clients/cv.docx")))
+        reason = reply["hookSpecificOutput"]["permissionDecisionReason"]
+        assert "returned the full text" in reason
+        assert "Nothing failed" in reason
 
     def test_the_rest_of_the_call_is_left_alone(self, project, make_docx):
         docx = make_docx(project / "clients/cv.docx")
