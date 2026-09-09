@@ -92,7 +92,11 @@ def _entry_is_ours(entry: object) -> bool:
 
 
 def _installed_events(path: Path) -> list[str]:
-    """Return which of our hook events are registered in a settings file."""
+    """Return which of our hook events are registered in a settings file.
+
+    PreToolUse: refuses reads whose contents could not be redacted;
+    PostToolUse: redacts what a tool returned.
+    """
     hooks = _read_json(path).get("hooks")
     if not isinstance(hooks, dict):
         return []
