@@ -7,7 +7,9 @@ import glob
 import json
 import os
 import re
+import shlex
 import sys
+from pathlib import Path
 from typing import Any
 
 from rezunate_guard import extract, log, redacted_copy
@@ -39,6 +41,13 @@ _TAG_VALUE = re.compile(r"[a-z][a-z0-9_-]{0,31}")
 
 _COMMAND_TOKEN = re.compile(r"[^\s;|&()<>\"'`]+")
 _LOOKS_LIKE_FILE = re.compile(r"\.\w{1,8}$")
+
+#: Commands that report on a file without printing what is inside it.
+METADATA_COMMANDS = frozenset(
+    {"basename", "dirname", "du", "file", "ls", "readlink", "realpath", "stat", "test"}
+)
+
+_SHELL_SPLIT = re.compile(r"[;|&\n]+")
 
 
 class Blocked(Exception):
@@ -138,6 +147,23 @@ def _paths_in_command(command: str) -> list[str]:
 
         found.append(token)
     return found
+
+
+def _reads_no_contents(command: str) -> bool:
+    """Return True if every part of a command reports on files without opening them.
+
+    `ls` on a protected PDF prints a size, not a page of it. Refusing it told the model
+    the file was off limits, so it never tried the Read that would have worked.
+
+    Anything unrecognised, or able to hide a second command, is left to the refusal path.
+    """
+    if any(token in command for token in ("$(", "`", "<", ">")):
+        return False
+    try:
+        parts = [shlex.split(segment) for segment in _SHELL_SPLIT.split(command)]
+    except ValueError:
+        return False
+    return bool(parts) and all(part and part[0] in METADATA_COMMANDS for part in parts)
 
 
 def _tool_path(payload: dict[str, Any]) -> str | None:
@@ -286,38 +312,49 @@ def _read_instead(updated_input: dict[str, Any], reason: str) -> dict[str, Any]:
     }
 
 
-def _serve_redacted(payload: dict[str, Any], key: str, path: str) -> dict[str, Any] | None:
-    """Point the read at a redacted copy of a file the model cannot be shown.
+def _redacted_copy_of(path: str) -> Path | str:
+    """Build a redacted copy of a file whose contents the model cannot be shown.
 
     Args:
-        payload: The hook payload.
-        key: The tool input key naming the file.
         path: The file itself.
 
     Returns:
-        A reply redirecting the read, or None if no redacted copy could be made, which
-        leaves the caller to refuse the read instead.
+        The copy, or a sentence saying why one could not be made. Callers put that in
+        their refusal, so a scan that was down never reads as a file we cannot handle.
     """
     if not extract.can_extract(path):
-        return None
+        return "there is no text extractor for this kind of file"
 
     try:
         text = extract.extract_text(path)
         copy_path = redacted_copy.write(path, redact_all([text])[text])
     except (ExtractionError, ScanError, Blocked, MaskingError, OSError) as exc:
         log.problem(path, f"could not build a redacted copy: {exc}")
-        return None
+        return str(exc)
 
     # Only if REZUNATE_HOME has been pointed inside a protected folder. Reading the copy
     # would then land back here, and the second pass would have nothing left to extract.
     if should_scan(copy_path):
         log.problem(copy_path, "the redacted copy is itself in a protected folder")
-        return None
+        return "the redacted copy would itself sit in a protected folder"
 
-    return _read_instead(
-        {**payload["tool_input"], key: str(copy_path)},
-        f"{os.path.basename(path)} is protected, so rezunate-guard extracted its text, "
-        "redacted it, and pointed this read at the copy.",
+    return copy_path
+
+
+def _refusal(path: str, outcome: Path | str) -> str:
+    """Say why a call was refused, and where to go instead."""
+    name = os.path.basename(path)
+    if isinstance(outcome, Path):
+        return (
+            f"{name} is protected, so this call cannot run: its contents would reach the "
+            f"model where rezunate-guard cannot rewrite them. Read {outcome} instead. It "
+            "holds the same text with the personal data replaced."
+        )
+    return (
+        f"{name} is protected and rezunate-guard could not build a redacted copy of it: "
+        f"{outcome}. None of its contents are available; do not guess at them, and do not "
+        "change the `scan:` list to work around this. "
+        "Ask the user to run `rezunate-guard status`."
     )
 
 
@@ -331,6 +368,12 @@ def _before_tool(payload: dict[str, Any]) -> dict[str, Any] | None:
     Returns:
         A redirect or deny reply, or None to let the call run untouched.
     """
+    tool_input = payload.get("tool_input")
+    if isinstance(tool_input, dict):
+        command = tool_input.get("command")
+        if isinstance(command, str) and _reads_no_contents(command):
+            return None
+
     named = _named_file(payload)
 
     for path in _implicated_paths(payload):
@@ -341,19 +384,22 @@ def _before_tool(payload: dict[str, Any]) -> dict[str, Any] | None:
         if not extract.can_extract(path) and _reaches_the_model_as_text(path):
             continue
 
+        outcome = _redacted_copy_of(path)
+
         # realpath rather than samefile, which raises when the tool named a path that is
         # not there. Both sides go through it, so a symlink still matches its target.
-        if named is not None and os.path.realpath(named[1]) == os.path.realpath(path):
-            redirected = _serve_redacted(payload, named[0], path)
-            if redirected is not None:
-                return redirected
+        if (
+            isinstance(outcome, Path)
+            and named is not None
+            and os.path.realpath(named[1]) == os.path.realpath(path)
+        ):
+            return _read_instead(
+                {**payload["tool_input"], named[0]: str(outcome)},
+                f"{os.path.basename(path)} is protected, so rezunate-guard extracted its "
+                "text, redacted it, and pointed this read at the copy.",
+            )
 
-        return _deny(
-            f"{os.path.basename(path)} is protected, and its contents cannot be "
-            "redacted after reading: they reach the model outside the tool result, "
-            "where rezunate-guard cannot rewrite them. Read the file some other way, "
-            "or take it out of the `scan:` list in .rezunate-guard.yaml."
-        )
+        return _deny(_refusal(path, outcome))
     return None
 
 

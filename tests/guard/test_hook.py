@@ -244,11 +244,77 @@ class TestContentThatArrivesOutsideTheResult:
         assert reply["hookSpecificOutput"]["permissionDecision"] == "deny"
         return reply["hookSpecificOutput"]["permissionDecisionReason"]
 
+    def test_a_command_that_only_reports_on_a_file_still_runs(self, project):
+        """`ls` on a protected PDF prints a size, not a page of it.
+
+        Denying it told the model the file was off limits, so it never tried the Read
+        that would have handed it a redacted copy.
+        """
+        pdf = project / "clients/resume.pdf"
+        pdf.write_bytes(b"%PDF-1.7\n\x00\x01binary junk")
+        for command in (f"ls -la {pdf}", f"stat {pdf}", f"file {pdf}"):
+            payload = {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Bash",
+                "tool_input": {"command": command},
+            }
+            assert hook.respond(payload) is None, command
+
+    def test_a_command_that_would_print_the_file_is_still_denied(self, project):
+        pdf = project / "clients/resume.pdf"
+        pdf.write_bytes(b"%PDF-1.7\n\x00\x01binary junk")
+        for command in (
+            f"cat {pdf}",
+            f"strings {pdf}",
+            f"ls {pdf}; cat {pdf}",
+            f"ls $(cat {pdf})",
+            f"ls {pdf} > /tmp/out",
+        ):
+            payload = {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Bash",
+                "tool_input": {"command": command},
+            }
+            assert hook.respond(payload) is not None, command
+
     def test_a_protected_pdf_is_denied_before_it_runs(self, project):
         pdf = project / "clients/resume.pdf"
         pdf.write_bytes(b"%PDF-1.7\n\x00\x01binary junk")
         reason = self.denial(hook.respond(self.pre_payload(pdf)))
         assert "resume.pdf" in reason
+
+    def test_a_refusal_names_the_redacted_copy(self, project, monkeypatch):
+        """A refusal that only says no teaches the model the file is unreachable."""
+        monkeypatch.setattr(hook, "redact_all", lambda texts: dict.fromkeys(texts, "[NAME]"))
+        pdf = project / "clients/resume.pdf"
+        pdf.write_bytes(b"%PDF-1.7\n\x00\x01binary junk")
+        monkeypatch.setattr(hook.extract, "can_extract", lambda path: True)
+        monkeypatch.setattr(hook.extract, "extract_text", lambda path: "Ali Hassan")
+
+        payload = {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": f"cat {pdf}"},
+        }
+        reason = self.denial(hook.respond(payload))
+        assert "redacted-copies" in reason
+        assert "cannot be redacted after reading" not in reason
+
+    def test_a_scan_failure_is_not_blamed_on_the_file(self, project, monkeypatch):
+        """The file is fine; saying otherwise sends the model off editing the config."""
+
+        def unreachable(texts):
+            raise ScanError("could not reach http://127.0.0.1:9")
+
+        monkeypatch.setattr(hook, "redact_all", unreachable)
+        monkeypatch.setattr(hook.extract, "can_extract", lambda path: True)
+        monkeypatch.setattr(hook.extract, "extract_text", lambda path: "Ali Hassan")
+        pdf = project / "clients/resume.pdf"
+        pdf.write_bytes(b"%PDF-1.7\n\x00\x01binary junk")
+
+        reason = self.denial(hook.respond(self.pre_payload(pdf)))
+        assert "could not reach" in reason
+        assert "do not change the `scan:` list" in reason
 
     def test_a_protected_binary_of_no_known_format_is_denied(self, project):
         """Nothing here knows what a .dat is, and it doesn't need to."""
