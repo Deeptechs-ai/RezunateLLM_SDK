@@ -1,4 +1,14 @@
-"""Decide whether a file sits in a protected folder, and so needs scanning."""
+"""Decide whether a file needs to be scanned.
+
+The flow is:
+
+1. Find the nearest config file for the given file.
+2. Load and parse the config and get the protected folders.
+3. Check whether the file is inside any protected folder.
+4. If it is, return that the file should be scanned.
+5. If the file is outside the config's root, check whether it has its own config.
+6. Otherwise, return that the file does not need scanning.
+"""
 
 from __future__ import annotations
 
