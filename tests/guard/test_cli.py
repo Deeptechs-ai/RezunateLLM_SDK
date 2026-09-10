@@ -36,6 +36,11 @@ def settings(home) -> dict:
     return json.loads(path.read_text()) if path.exists() else {}
 
 
+def _refuse_input(*args, **kwargs):
+    """Stand in for `input`, so a test fails loudly if a secret is ever read with it."""
+    raise AssertionError("a secret must not be read with input(); it echoes to the terminal")
+
+
 class TestInstall:
     def test_registers_the_hook(self, home, project):
         assert cli.main(["install"]) == 0
@@ -111,6 +116,15 @@ class TestInstall:
         assert cli.main(["install"]) == 1
         assert "not an object" in capsys.readouterr().err
 
+    @pytest.mark.parametrize("hooks", [None, "nonsense", 7, {}], ids=["null", "str", "int", "dict"])
+    def test_survives_an_entry_whose_hooks_are_not_a_list(self, home, project, hooks):
+        """A hand-edited entry must not crash install; it just isn't one of ours."""
+        existing = {"hooks": {"PreToolUse": [{"matcher": "*", "hooks": hooks}]}}
+        (home / "claude" / "settings.json").write_text(json.dumps(existing))
+
+        assert cli.main(["install"]) == 0
+        assert len(settings(home)["hooks"]["PreToolUse"]) == 2
+
 
 class TestUninstall:
     def test_removes_our_hook(self, home, project):
@@ -141,6 +155,44 @@ class TestUninstall:
         assert settings(home)["theme"] == "dark"
 
 
+class TestUninstallLegacyPermission:
+    """Older installs added the redacted-copies directory to `permissions`."""
+
+    def legacy(self, home, **extra) -> None:
+        copies = str(constants.redacted_copies_dir())
+        existing = {"permissions": {"additionalDirectories": [copies]}, **extra}
+        (home / "claude" / "settings.json").write_text(json.dumps(existing))
+
+    def test_the_leftover_directory_is_dropped(self, home, project):
+        self.legacy(home)
+        assert cli.main(["uninstall"]) == 0
+        assert "permissions" not in settings(home)
+
+    def test_other_directories_survive(self, home, project):
+        copies = str(constants.redacted_copies_dir())
+        existing = {"permissions": {"additionalDirectories": [copies, "/shared"]}}
+        (home / "claude" / "settings.json").write_text(json.dumps(existing))
+
+        assert cli.main(["uninstall"]) == 0
+        assert settings(home)["permissions"]["additionalDirectories"] == ["/shared"]
+
+    def test_it_does_not_claim_to_have_removed_a_hook(self, home, project, capsys):
+        """A `hooks` dict holding nobody's hook but someone else's used to say otherwise."""
+        others = {"PreToolUse": [{"matcher": "*", "hooks": [{"command": "somebody-else"}]}]}
+        self.legacy(home, hooks=others)
+
+        assert cli.main(["uninstall"]) == 0
+        output = capsys.readouterr().out
+        assert "redacted-copies" in output
+        assert "no longer redacted" not in output
+        assert settings(home)["hooks"] == others
+
+    def test_a_malformed_hooks_value_is_left_alone(self, home, project):
+        self.legacy(home, hooks="nonsense")
+        assert cli.main(["uninstall"]) == 0
+        assert settings(home)["hooks"] == "nonsense"
+
+
 class TestInit:
     def test_writes_a_config(self, home, project):
         assert cli.main(["init"]) == 0
@@ -166,14 +218,20 @@ class TestLogin:
         assert path.stat().st_mode & 0o077 == 0, "credentials must not be readable by others"
 
     def test_rejects_an_empty_key(self, home, project, monkeypatch, capsys):
-        monkeypatch.setattr("builtins.input", lambda *a: "")
+        monkeypatch.setattr("getpass.getpass", lambda *a: "")
         assert cli.main(["login"]) == 1
 
     def test_points_at_the_dashboard_when_prompting(self, home, project, monkeypatch, capsys):
         """Someone running `login` without a key needs to be told where to get one."""
-        monkeypatch.setattr("builtins.input", lambda *a: "sk-test-123")
+        monkeypatch.setattr("getpass.getpass", lambda *a: "sk-test-123")
         assert cli.main(["login"]) == 0
         assert constants.api_keys_url() in capsys.readouterr().out
+
+    def test_the_prompt_does_not_echo_the_key(self, home, project, monkeypatch):
+        """A key typed at a visible prompt survives in scrollback; that defeats the point."""
+        monkeypatch.setattr("builtins.input", _refuse_input)
+        monkeypatch.setattr("getpass.getpass", lambda *a: "sk-test-123")
+        assert cli.main(["login"]) == 0
 
     def test_the_dashboard_url_follows_the_base_url(self, home, project, monkeypatch):
         monkeypatch.setenv(constants.BASE_URL_ENV, "http://localhost:8000/")

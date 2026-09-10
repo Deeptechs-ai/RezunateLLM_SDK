@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
 import sys
@@ -64,17 +65,18 @@ def settings_path(scope: str) -> Path:
     """Return the Claude Code settings file for a scope.
 
     Args:
-        scope: Either "user" or "project".
+        scope: "user" applies everywhere; "project" only to the working directory.
 
     Returns:
-        The settings path. Project scope is relative to the working directory.
+        The settings file for that scope.
     """
     if scope == "project":
-        return Path.cwd() / ".claude" / "settings.json"
-    return (
-        Path(os.environ.get(constants.CLAUDE_CONFIG_DIR_ENV) or Path.home() / ".claude")
-        / "settings.json"
-    )
+        directory = Path.cwd() / ".claude"
+    else:
+        configured = os.environ.get(constants.CLAUDE_CONFIG_DIR_ENV)
+        directory = Path(configured) if configured else Path.home() / ".claude"
+
+    return directory / "settings.json"
 
 
 def _read_json(path: Path) -> dict:
@@ -82,7 +84,8 @@ def _read_json(path: Path) -> dict:
     try:
         parsed = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return {}
+        parsed = None
+
     return parsed if isinstance(parsed, dict) else {}
 
 
@@ -108,13 +111,11 @@ def _write_json(path: Path, data: dict) -> None:
 
 def _is_rezunate_hook_entry(entry: object) -> bool:
     """Return True if a hook entry was registered by Rezunate, so uninstall leaves others be."""
-    if not isinstance(entry, dict):
-        return False
-    return any(
-        isinstance(hook, dict)
-        and any(marker in str(hook.get("command", "")) for marker in HOOK_MARKERS)
-        for hook in entry.get("hooks", [])
-    )
+    raw = entry.get("hooks") if isinstance(entry, dict) else None
+    hooks = raw if isinstance(raw, list) else []
+
+    commands = [str(hook.get("command", "")) for hook in hooks if isinstance(hook, dict)]
+    return any(marker in command for command in commands for marker in HOOK_MARKERS)
 
 
 def _installed_events(path: Path) -> list[str]:
@@ -122,10 +123,16 @@ def _installed_events(path: Path) -> list[str]:
 
     PreToolUse: refuses reads whose contents could not be redacted;
     PostToolUse: redacts what a tool returned.
+
+    Args:
+        path: The settings file to read.
+
+    Returns:
+        The events we registered, in `HOOK_EVENTS` order. Empty if none are.
     """
-    hooks = _read_json(path).get("hooks")
-    if not isinstance(hooks, dict):
-        return []
+    raw = _read_json(path).get("hooks")
+    hooks = raw if isinstance(raw, dict) else {}
+
     return [
         event
         for event in HOOK_EVENTS
@@ -142,15 +149,14 @@ def command_login(args: argparse.Namespace) -> int:
     if not key:
         print(f"No key yet? Create one at {constants.api_keys_url()}")
         try:
-            key = input("API key: ").strip()
+            key = getpass.getpass("API key: ").strip()
         except (EOFError, KeyboardInterrupt):
             print(_paint("\ncancelled", _RED), file=sys.stderr)
             return 1
 
     if not key:
-        print(
-            _paint(f"no key given; create one at {constants.api_keys_url()}", _RED), file=sys.stderr
-        )
+        message = f"no key given; create one at {constants.api_keys_url()}"
+        print(_paint(message, _RED), file=sys.stderr)
         return 1
 
     path = constants.credentials_path()
@@ -256,16 +262,12 @@ def command_uninstall(args: argparse.Namespace) -> int:
     """Remove Rezunate's hook entries from `settings.json`, leaving any others untouched."""
     path = settings_path(args.scope)
     settings = _read_json(path)
-    hooks = settings.get("hooks")
-    if not isinstance(hooks, dict):
-        if _disallow_redacted_copies(settings):
-            _write_json(path, settings)
-            print(f"redacted-copies directory removed from {path}")
-            return 0
-        print(f"nothing to remove in {path}")
-        return 0
 
-    removed = _disallow_redacted_copies(settings)
+    raw = settings.get("hooks")
+    hooks = raw if isinstance(raw, dict) else {}
+
+    copies_removed = _disallow_redacted_copies(settings)
+    hook_removed = False
     for event in HOOK_EVENTS:
         entries = hooks.get(event)
         if not isinstance(entries, list):
@@ -275,22 +277,27 @@ def command_uninstall(args: argparse.Namespace) -> int:
         if len(remaining) == len(entries):
             continue
 
-        removed = True
+        hook_removed = True
         if remaining:
             hooks[event] = remaining
         else:
             del hooks[event]
 
-    if not removed:
+    if not (hook_removed or copies_removed):
         print(f"nothing to remove in {path}")
         return 0
 
-    if not hooks:
+    # Only when it really was ours to empty; a malformed `hooks` value stays as it is.
+    if isinstance(raw, dict) and not hooks:
         del settings["hooks"]
 
     _write_json(path, settings)
-    print(f"{_paint('hook removed', _YELLOW)} from {path}")
-    print(_paint("Files are no longer redacted.", _YELLOW) + " Restart Claude Code to apply.")
+    if hook_removed:
+        print(f"{_paint('hook removed', _YELLOW)} from {path}")
+        print(_paint("Files are no longer redacted.", _YELLOW) + " Restart Claude Code to apply.")
+    else:
+        print(f"redacted-copies directory removed from {path}")
+
     return 0
 
 
