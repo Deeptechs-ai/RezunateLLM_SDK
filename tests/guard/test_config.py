@@ -143,9 +143,13 @@ class TestFolderNormalisation:
         config = config_for(tmp_path, f"scan:\n  - '{entry}'\n")
         assert config.scan == ((tmp_path / "clients").resolve(),)
 
-    def test_comments_and_blanks_are_ignored(self, tmp_path):
-        config = config_for(tmp_path, "scan:\n  - '# not a folder'\n  - ''\n  - clients\n")
+    def test_blank_entries_are_ignored(self, tmp_path):
+        config = config_for(tmp_path, "scan:\n  - ''\n  - '   '\n  - clients\n")
         assert config.scan == ((tmp_path / "clients").resolve(),)
+
+    def test_a_quoted_comment_is_taken_as_a_folder_name(self, tmp_path):
+        config = config_for(tmp_path, "scan:\n  - '# not a folder'\n")
+        assert config.scan == ((tmp_path / "# not a folder").resolve(),)
 
     def test_a_single_folder_may_be_written_as_a_string(self, tmp_path):
         config = config_for(tmp_path, "scan: clients\n")

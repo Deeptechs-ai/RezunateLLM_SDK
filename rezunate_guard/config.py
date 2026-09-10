@@ -60,8 +60,8 @@ class GuardConfig:
         return not self.scan
 
 
-def is_under(path: Path, directory: Path) -> bool:
-    """Check whether a path is a folder or anything inside it.
+def is_protected(path: Path, directory: Path) -> bool:
+    """Check whether a path is a protected folder or anything inside it.
 
     Both must be resolved already, or a symlink makes this answer no when it should
     answer yes.
@@ -87,55 +87,61 @@ def broken_config(root: Path, source: Path | None, error: str) -> GuardConfig:
     return GuardConfig(root=root, source=source, error=error)
 
 
-def _as_directories(value: object, root: Path) -> tuple[Path, ...]:
-    """Turn a `scan` list into absolute folder paths.
+def _resolve_folder(name: str, root: Path) -> Path:
+    """Turn one entry from `scan:` into an absolute folder.
 
-    A relative path is relative to the config. An absolute one, or a `~` one, is taken
-    as written, so a config can protect a folder outside its own project.
+    A relative name hangs off `root`, the folder the config sits in. An absolute or `~`
+    name is taken as written, so a config can protect a folder outside its own project.
 
     Args:
-        value: The raw `scan` value.
+        name: One entry from the `scan:` list, already stripped of surrounding space.
+        root: The folder the config sits in.
+
+    Returns:
+        The folder, absolute and resolved.
+
+    Raises:
+        ValueError: If the name is a pattern, or `~` points nowhere. Either resolves to a
+            folder that never exists, leaving the user believing they were covered.
+    """
+    text = name.rstrip("/") or "/"
+    if any(character in text for character in "*?["):
+        raise ValueError(f"{name!r} is not a folder; name the folder, such as 'clients'")
+
+    try:
+        folder = Path(text).expanduser()
+    except RuntimeError as exc:
+        raise ValueError(f"{name!r} is not a folder: {exc}") from exc
+
+    return (folder if folder.is_absolute() else root / folder).resolve()
+
+
+def _listed_folders(value: object, root: Path) -> tuple[Path, ...]:
+    """Return the folders listed under `scan:`.
+
+    Args:
+        value: The raw `scan` value: one folder name, or a list of them.
         root: The folder the config sits in.
 
     Returns:
         Absolute, resolved folders.
 
     Raises:
-        ValueError: If an entry is a pattern, or not a name at all. Either would resolve
-            to a folder that never exists, leaving the user believing they were covered.
+        ValueError: If an entry is not a folder name. See `_resolve_folder`.
     """
-    if isinstance(value, str):
-        entries = [value]
-    elif isinstance(value, list | tuple):
+    entries = [value] if isinstance(value, str) else value
+    if not isinstance(entries, list | tuple):
         entries = []
-        for item in value:
-            if item is None:
-                continue
-            # A stray colon makes YAML hand us a dict. Naming that as a folder would give
-            # us "{'clients': None}", which matches nothing and complains about nothing.
-            if not isinstance(item, str):
-                raise ValueError(f"{item!r} is not a folder name; check the punctuation")
-            entries.append(item)
-    else:
-        return ()
 
-    directories = []
+    folders = []
     for entry in entries:
-        text = entry.strip()
-        if not text or text.startswith("#"):
-            continue
+        if entry is not None and not isinstance(entry, str):
+            raise ValueError(f"{entry!r} is not a folder name; check the punctuation")
 
-        text = text.rstrip("/") or "/"
-        # A pattern would resolve to a file name that never exists, protecting nothing.
-        if any(character in text for character in "*?["):
-            raise ValueError(f"{entry!r} is not a folder; name the folder, such as 'clients'")
-
-        try:
-            path = Path(text).expanduser()
-        except RuntimeError as exc:
-            raise ValueError(f"{entry!r} is not a folder: {exc}") from exc
-        directories.append((path if path.is_absolute() else root / path).resolve())
-    return tuple(directories)
+        name = (entry or "").strip()
+        if name:
+            folders.append(_resolve_folder(name, root))
+    return tuple(folders)
 
 
 def find_config_file(start: Path) -> Path | None:
@@ -216,7 +222,7 @@ def _parse_scan_list(text: str, root: Path) -> tuple[Path, ...]:
     if unknown:
         raise ValueError(f"unknown setting {unknown[0]!r}; expected `scan:`")
 
-    return _as_directories(raw.get("scan"), root)
+    return _listed_folders(raw.get("scan"), root)
 
 
 def _parse(config_path: Path, text: str) -> GuardConfig:
@@ -260,7 +266,7 @@ def resolve_config(file_path: Path) -> GuardConfig:
     filesystem_root = Path(file_path.anchor or "/")
     fallback = constants.user_config_path()
     if fallback.is_file():
-        return dataclasses.replace(load_config(fallback), root=filesystem_root, source=fallback)
+        return dataclasses.replace(load_config(fallback), root=filesystem_root)
 
     return GuardConfig(root=filesystem_root)
 
@@ -286,10 +292,10 @@ def scan_decision(file_path: Path | str, config: GuardConfig | None = None) -> D
     # Listed folders come first: they may sit outside the project, and checking the root
     # first would hand such a file to a config that has never heard of it.
     for directory in config.scan:
-        if is_under(path, directory):
+        if is_protected(path, directory):
             return Decision(True, f"in a protected folder ({directory})")
 
-    if not is_under(path, config.root.resolve()):
+    if not path.is_relative_to(config.root.resolve()):
         # Almost certainly an --add-dir file, so let its own config answer.
         own_config = resolve_config(path)
         if own_config.root != config.root:
