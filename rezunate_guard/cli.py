@@ -9,7 +9,7 @@ import os
 import sys
 from pathlib import Path
 
-from rezunate_guard import __version__, constants
+from rezunate_guard import __version__, constants, private_file
 from rezunate_guard.config import CONFIG_TEMPLATE, resolve_config, scan_decision
 from rezunate_guard.hook import main as hook_main
 from rezunate_guard.scanner import stored_key
@@ -140,34 +140,43 @@ def _installed_events(path: Path) -> list[str]:
     ]
 
 
+def _prompt_for_key() -> str:
+    """Ask for a key at a prompt that does not echo.
+
+    Returns:
+        What was typed, or "" if the user gave nothing or interrupted. The caller says
+        so, since an empty answer and a cancelled one leave you in the same place.
+    """
+    print(f"No key yet? Create one at {constants.api_keys_url()}")
+    key = ""
+    try:
+        key = getpass.getpass("API key: ")
+    except (EOFError, KeyboardInterrupt):
+        print(file=sys.stderr)  # close the line the prompt left open
+
+    return key.strip()
+
+
 def command_login(args: argparse.Namespace) -> int:
     """Save an API key to `~/.rezunate/credentials`, readable only by the user.
 
     Prompts for the key when it is not given as an argument.
     """
-    key = (args.key or "").strip()
-    if not key:
-        print(f"No key yet? Create one at {constants.api_keys_url()}")
-        try:
-            key = getpass.getpass("API key: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print(_paint("\ncancelled", _RED), file=sys.stderr)
-            return 1
+    key = (args.key or "").strip() or _prompt_for_key()
 
     if not key:
         message = f"no key given; create one at {constants.api_keys_url()}"
         print(_paint(message, _RED), file=sys.stderr)
-        return 1
+        status = 1
+    else:
+        path = constants.credentials_path()
+        private_file.write(path, f"{key}\n".encode())
 
-    path = constants.credentials_path()
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        handle.write(key + "\n")
+        print(f"{_paint('key saved', _GREEN)} to {path}")
+        print("this key is not verified until the first scan; run `rezunate-guard status`")
+        status = 0
 
-    print(f"{_paint('key saved', _GREEN)} to {path}")
-    print("this key is not verified until the first scan; run `rezunate-guard status`")
-    return 0
+    return status
 
 
 def command_init(args: argparse.Namespace) -> int:
@@ -177,16 +186,20 @@ def command_init(args: argparse.Namespace) -> int:
     user edits it.
     """
     path = Path.cwd() / constants.CONFIG_FILENAME
+
     if path.exists() and not args.force:
         print(_paint(f"{path} already exists; pass --force to overwrite", _RED), file=sys.stderr)
-        return 1
+        status = 1
+    else:
+        path.write_text(CONFIG_TEMPLATE, encoding="utf-8")
 
-    path.write_text(CONFIG_TEMPLATE, encoding="utf-8")
-    print(f"{_paint('wrote', _GREEN)} {path}")
-    print()
-    print(_paint("Nothing is protected yet.", _YELLOW) + " Edit the `scan:` list, then run:")
-    print("  rezunate-guard status")
-    return 0
+        print(f"{_paint('wrote', _GREEN)} {path}")
+        print()
+        print(_paint("Nothing is protected yet.", _YELLOW) + " Edit the `scan:` list, then run:")
+        print("  rezunate-guard status")
+        status = 0
+
+    return status
 
 
 def _disallow_redacted_copies(settings: dict) -> bool:

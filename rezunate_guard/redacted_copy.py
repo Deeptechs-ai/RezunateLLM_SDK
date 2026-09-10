@@ -8,10 +8,9 @@ lives.
 from __future__ import annotations
 
 import hashlib
-import os
 from pathlib import Path
 
-from rezunate_guard import constants
+from rezunate_guard import constants, private_file
 
 #: Told to the model at the top of every redacted copy, so it never reports extracted text as
 #: the file itself.
@@ -53,12 +52,7 @@ def write(original: Path | str, redacted: str) -> Path:
     body = HEADER.format(name=original.name) + redacted
 
     directory = constants.redacted_copies_dir()
-    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = directory / f"{original.stem}-{_content_fingerprint(original, redacted)}.txt"
 
-    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        handle.write(body)
-    os.replace(temporary, path)
+    private_file.write(path, body.encode("utf-8"))
     return path

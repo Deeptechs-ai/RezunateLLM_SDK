@@ -5,12 +5,11 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import os
 import re
 import secrets
 from collections.abc import Iterable
 
-from rezunate_guard import constants
+from rezunate_guard import constants, private_file
 from rezunate_guard.scanner import Entity
 
 
@@ -60,12 +59,7 @@ def placeholder_key() -> bytes:
     except OSError:
         pass
 
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary_path = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    descriptor = os.open(temporary_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "wb") as handle:
-        handle.write(secrets.token_bytes(32))
-    os.replace(temporary_path, path)
+    private_file.write(path, secrets.token_bytes(32))
     return path.read_bytes()
 
 
