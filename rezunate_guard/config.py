@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -249,10 +248,6 @@ def _parse(config_path: Path, text: str) -> GuardConfig:
 def resolve_config(file_path: Path) -> GuardConfig:
     """Find and load the config that governs a path.
 
-    Falls back to `~/.rezunate/config.yaml` for files in no project. That one is rooted
-    at the filesystem root, so it is the last place to look and its folders should be
-    absolute.
-
     Args:
         file_path: The file being read.
 
@@ -260,15 +255,10 @@ def resolve_config(file_path: Path) -> GuardConfig:
         The config governing it. Protects nothing if there is none.
     """
     config_file = find_config_file(file_path)
-    if config_file is not None:
-        return load_config(config_file)
+    if config_file is None:
+        return GuardConfig(root=Path(file_path.anchor or "/"))
 
-    filesystem_root = Path(file_path.anchor or "/")
-    fallback = constants.user_config_path()
-    if fallback.is_file():
-        return dataclasses.replace(load_config(fallback), root=filesystem_root)
-
-    return GuardConfig(root=filesystem_root)
+    return load_config(config_file)
 
 
 def scan_decision(file_path: Path | str, config: GuardConfig | None = None) -> Decision:

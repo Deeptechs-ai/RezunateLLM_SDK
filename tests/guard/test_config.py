@@ -323,47 +323,7 @@ class TestResolveConfig:
         target = write(tmp_path, "notes.md")
         assert resolve_config(target).source == tmp_path / constants.CONFIG_FILENAME
 
-
-class TestGlobalFallback:
-    """The `~/.rezunate/config.yaml` covering files that belong to no project.
-
-    It is rooted at the filesystem root, since a global config has no project folder to
-    anchor to, so its folders are absolute. That re-rooting is the subtlest part of the
-    module.
-    """
-
-    def global_config(self, home: Path, body: str) -> Path:
-        home.mkdir(parents=True, exist_ok=True)
-        path = home / "config.yaml"
-        path.write_text(body, encoding="utf-8")
-        return path
-
-    def test_a_file_in_no_project_falls_back_to_the_global_config(self, tmp_path, isolated_home):
-        self.global_config(isolated_home, f"scan:\n  - {tmp_path}/secrets\n")
-        target = write(tmp_path, "secrets/key.pem")
-
-        assert resolve_config(target).source == constants.user_config_path()
-        assert should_scan(target) is True
-
-    def test_an_absolute_folder_covers_everything_under_it(self, tmp_path, isolated_home):
-        self.global_config(isolated_home, f"scan:\n  - {tmp_path}/secrets\n")
-        assert should_scan(write(tmp_path, "secrets/a/b/c/key.pem")) is True
-        assert should_scan(write(tmp_path, "notes.md")) is False
-
-    def test_the_global_config_is_rooted_at_the_filesystem_root(self, tmp_path, isolated_home):
-        """Get this wrong and every global folder silently misses."""
-        self.global_config(isolated_home, f"scan:\n  - {tmp_path}/secrets\n")
-        config = resolve_config(write(tmp_path, "secrets/key.pem"))
-        assert config.root == Path(tmp_path.anchor)
-
-    def test_a_project_config_beats_the_global_one(self, tmp_path, isolated_home):
-        self.global_config(isolated_home, f"scan:\n  - {tmp_path}/secrets\n")
-        write(tmp_path, constants.CONFIG_FILENAME, "scan:\n  - clients\n")
-
-        assert should_scan(write(tmp_path, "secrets/key.pem")) is False
-        assert should_scan(write(tmp_path, "clients/a.md")) is True
-
-    def test_no_global_config_leaves_the_guard_inert(self, tmp_path, isolated_home):
+    def test_a_file_in_no_project_is_rooted_at_the_filesystem_root(self, tmp_path):
+        """So `scan_decision` reads it as unconfigured, not as another project's file."""
         config = resolve_config(write(tmp_path, "key.pem"))
-        assert config.source is None
-        assert config.protects_nothing is True
+        assert config.root == Path(tmp_path.anchor)

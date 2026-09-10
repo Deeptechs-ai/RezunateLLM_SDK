@@ -48,11 +48,6 @@ def log_path() -> Path:
     return rezunate_home() / "guard.log"
 
 
-def user_config_path() -> Path:
-    """Return the config used for files that belong to no project."""
-    return rezunate_home() / "config.yaml"
-
-
 def redacted_copies_dir() -> Path:
     """Return the directory holding redacted copies for unreadable files.
 
