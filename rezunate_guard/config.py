@@ -130,7 +130,10 @@ def _as_directories(value: object, root: Path) -> tuple[Path, ...]:
         if any(character in text for character in "*?["):
             raise ValueError(f"{entry!r} is not a folder; name the folder, such as 'clients'")
 
-        path = Path(text).expanduser()
+        try:
+            path = Path(text).expanduser()
+        except RuntimeError as exc:
+            raise ValueError(f"{entry!r} is not a folder: {exc}") from exc
         directories.append((path if path.is_absolute() else root / path).resolve())
     return tuple(directories)
 
@@ -187,24 +190,41 @@ def load_config(config_path: Path) -> GuardConfig:
     return _PARSED[key]
 
 
+def _parse_scan_list(text: str, root: Path) -> tuple[Path, ...]:
+    """Read the `scan:` list out of a config file's text.
+
+    Args:
+        text: The file's contents.
+        root: The folder the config sits in, which relative entries hang off.
+
+    Returns:
+        The folders listed, as absolute paths.
+
+    Raises:
+        ValueError: If the file cannot be understood.
+        OSError: If a listed folder cannot be resolved.
+    """
+    try:
+        raw = yaml.safe_load(text) or {}
+    except Exception as exc:  # noqa: BLE001 - every failure has to be reported, not raised
+        raise ValueError(f"could not read config: {exc}") from exc
+
+    if not isinstance(raw, dict):
+        raise ValueError("config root must be a mapping")
+
+    unknown = sorted(set(raw) - {"scan"})
+    if unknown:
+        raise ValueError(f"unknown setting {unknown[0]!r}; expected `scan:`")
+
+    return _as_directories(raw.get("scan"), root)
+
+
 def _parse(config_path: Path, text: str) -> GuardConfig:
     """Turn the contents of one config file into rules. See `load_config`, which caches this."""
     root = config_path.parent
 
     try:
-        raw = yaml.safe_load(text) or {}
-    except Exception as exc:  # noqa: BLE001 - every failure has to be reported, not raised
-        return broken_config(root, config_path, f"could not read config: {exc}")
-
-    if not isinstance(raw, dict):
-        return broken_config(root, config_path, "config root must be a mapping")
-
-    unknown = sorted(set(raw) - {"scan"})
-    if unknown:
-        return broken_config(root, config_path, f"unknown setting {unknown[0]!r}; expected `scan:`")
-
-    try:
-        scan = _as_directories(raw.get("scan"), root)
+        scan = _parse_scan_list(text, root)
     except (ValueError, OSError) as exc:
         return broken_config(root, config_path, str(exc))
 
@@ -277,9 +297,12 @@ def scan_decision(file_path: Path | str, config: GuardConfig | None = None) -> D
             return Decision(decision.should_scan, f"outside config root; {decision.reason}")
         return Decision(False, "outside config root and no config of its own")
 
-    if config.protects_nothing:
-        return Decision(False, "no folders configured for scanning")
-    return Decision(False, "not in a protected folder")
+    reason = (
+        "no folders configured for scanning"
+        if config.protects_nothing
+        else "not in a protected folder"
+    )
+    return Decision(False, reason)
 
 
 def should_scan(file_path: Path | str, config: GuardConfig | None = None) -> bool:
