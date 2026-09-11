@@ -10,7 +10,7 @@ import re
 import shlex
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from rezunate_guard import extract, log, redacted_copy
 from rezunate_guard.config import should_scan
@@ -52,6 +52,18 @@ _SHELL_SPLIT = re.compile(r"[;|&\n]+")
 
 class Blocked(Exception):
     """The workspace guardrail blocks this content rather than redacting it."""
+
+
+class RedactedCopy(NamedTuple):
+    """A stand-in for a file whose contents the model cannot be shown.
+
+    Attributes:
+        path: The copy to read instead, or None if none could be made.
+        reason: Why none could be made, for the refusal to quote. Empty on success.
+    """
+
+    path: Path | None
+    reason: str = ""
 
 
 def redact_all(texts: list[str]) -> dict[str, str]:
@@ -101,10 +113,8 @@ def redact_response(response: Any) -> Any:
         Blocked: If the workspace guardrail blocks the content.
     """
     pending = _strings_in(response)
-    if not pending:
-        return response
+    redacted = redact_all(pending) if pending else {}
 
-    redacted = redact_all(pending)
     return _rewrite_strings(response, lambda text: redacted[text])
 
 
@@ -140,12 +150,16 @@ def _paths_in_command(command: str) -> list[str]:
         # ever looked at.
         if "=" in token and not token.startswith("/"):
             token = token.split("=", 1)[-1]
-        if not token or token.startswith("-") or "://" in token:
-            continue
-        if "/" not in token and not _LOOKS_LIKE_FILE.search(token):
-            continue
 
-        found.append(token)
+        refers_to_a_file = (
+            bool(token)
+            and not token.startswith("-")
+            and "://" not in token
+            and ("/" in token or bool(_LOOKS_LIKE_FILE.search(token)))
+        )
+        if refers_to_a_file:
+            found.append(token)
+
     return found
 
 
@@ -157,25 +171,24 @@ def _reads_no_contents(command: str) -> bool:
 
     Anything unrecognised, or able to hide a second command, is left to the refusal path.
     """
-    if any(token in command for token in ("$(", "`", "<", ">")):
-        return False
-    try:
-        parts = [shlex.split(segment) for segment in _SHELL_SPLIT.split(command)]
-    except ValueError:
-        return False
+    parts: list[list[str]] = []
+    has_shell_syntax = any(token in command for token in ("$(", "`", "<", ">"))
+    if not has_shell_syntax:
+        try:
+            parts = [shlex.split(segment) for segment in _SHELL_SPLIT.split(command)]
+        except ValueError:
+            parts = []
+
     return bool(parts) and all(part and part[0] in METADATA_COMMANDS for part in parts)
 
 
 def _tool_path(payload: dict[str, Any]) -> str | None:
     """Return the path the tool was pointed at, for replies that need one."""
     tool_input = payload.get("tool_input")
-    if not isinstance(tool_input, dict):
-        return None
-    for key in PATH_KEYS:
-        path = tool_input.get(key)
-        if isinstance(path, str) and path:
-            return path
-    return None
+    fields = tool_input if isinstance(tool_input, dict) else {}
+
+    named = [fields.get(key) for key in PATH_KEYS]
+    return next((path for path in named if isinstance(path, str) and path), None)
 
 
 def _named_file(payload: dict[str, Any]) -> tuple[str, str] | None:
@@ -189,16 +202,19 @@ def _named_file(payload: dict[str, Any]) -> tuple[str, str] | None:
         `(key, absolute_path)`, or None if the tool named no file.
     """
     tool_input = payload.get("tool_input")
-    if not isinstance(tool_input, dict):
-        return None
+    fields = tool_input if isinstance(tool_input, dict) else {}
 
     cwd = payload.get("cwd")
     base = cwd if isinstance(cwd, str) else os.getcwd()
-    for key in PATH_KEYS:
-        value = tool_input.get(key)
-        if isinstance(value, str) and value:
-            return key, os.path.join(base, os.path.expanduser(value))
-    return None
+
+    return next(
+        (
+            (key, os.path.join(base, os.path.expanduser(value)))
+            for key in PATH_KEYS
+            if isinstance(value := fields.get(key), str) and value
+        ),
+        None,
+    )
 
 
 def _implicated_paths(payload: dict[str, Any]) -> list[str]:
@@ -249,9 +265,8 @@ def _expand_glob(path: str) -> list[str]:
     Returns:
         Just the path if it holds none, otherwise the path and its matches.
     """
-    if not any(character in path for character in "*?["):
-        return [path]
-    return [path, *sorted(glob.glob(path))]
+    matches = sorted(glob.glob(path)) if any(character in path for character in "*?[") else []
+    return [path, *matches]
 
 
 def _reaches_the_model_as_text(path: str) -> bool:
@@ -273,16 +288,15 @@ def _reaches_the_model_as_text(path: str) -> bool:
     except OSError:
         return False
 
-    if b"\x00" in sample:
-        return False
-
+    readable = b"\x00" not in sample
     try:
         # An incremental decoder forgives a character cut in half by the sample boundary,
         # which a plain decode would call binary.
         codecs.getincrementaldecoder("utf-8")().decode(sample)
     except UnicodeDecodeError:
-        return False
-    return True
+        readable = False
+
+    return readable
 
 
 def _deny(reason: str) -> dict[str, Any]:
@@ -308,50 +322,55 @@ def _read_instead(updated_input: dict[str, Any], reason: str) -> dict[str, Any]:
     }
 
 
-def _redacted_copy_of(path: str) -> Path | str:
+def _redacted_copy_of(path: str) -> RedactedCopy:
     """Build a redacted copy of a file whose contents the model cannot be shown.
 
     Args:
         path: The file itself.
 
     Returns:
-        The copy, or a sentence saying why one could not be made. Callers put that in
-        their refusal, so a scan that was down never reads as a file we cannot handle.
+        The copy, or the reason none could be made. Callers quote that reason in their
+        refusal, so a scan that was down never reads as a file we cannot handle.
     """
-    if not extract.can_extract(path):
-        return "there is no text extractor for this kind of file"
+    copy = RedactedCopy(None, "there is no text extractor for this kind of file")
 
-    try:
-        text = extract.extract_text(path)
-        copy_path = redacted_copy.write(path, redact_all([text])[text])
-    except (ExtractionError, ScanError, Blocked, MaskingError, OSError) as exc:
-        log.problem(path, f"could not build a redacted copy: {exc}")
-        return str(exc)
+    if extract.can_extract(path):
+        try:
+            text = extract.extract_text(path)
+            copy_path = redacted_copy.write(path, redact_all([text])[text])
+        except (ExtractionError, ScanError, Blocked, MaskingError, OSError) as exc:
+            log.problem(path, f"could not build a redacted copy: {exc}")
+            copy = RedactedCopy(None, str(exc))
+        else:
+            if should_scan(copy_path):
+                log.problem(copy_path, "the redacted copy is itself in a protected folder")
+                copy = RedactedCopy(
+                    None, "the redacted copy would itself sit in a protected folder"
+                )
+            else:
+                copy = RedactedCopy(copy_path)
 
-    # Only if REZUNATE_HOME has been pointed inside a protected folder. Reading the copy
-    # would then land back here, and the second pass would have nothing left to extract.
-    if should_scan(copy_path):
-        log.problem(copy_path, "the redacted copy is itself in a protected folder")
-        return "the redacted copy would itself sit in a protected folder"
-
-    return copy_path
+    return copy
 
 
-def _refusal(path: str, outcome: Path | str) -> str:
+def _refusal(path: str, copy: RedactedCopy) -> str:
     """Say why a call was refused, and where to go instead."""
     name = os.path.basename(path)
-    if isinstance(outcome, Path):
-        return (
+    if copy.path is not None:
+        reason = (
             f"{name} is protected, so this call cannot run: its contents would reach the "
-            f"model where rezunate-guard cannot rewrite them. Read {outcome} instead. It "
+            f"model where rezunate-guard cannot rewrite them. Read {copy.path} instead. It "
             "holds the same text with the personal data replaced."
         )
-    return (
-        f"{name} is protected and rezunate-guard could not build a redacted copy of it: "
-        f"{outcome}. None of its contents are available; do not guess at them, and do not "
-        "change the `scan:` list to work around this. "
-        "Ask the user to run `rezunate-guard status`."
-    )
+    else:
+        reason = (
+            f"{name} is protected and rezunate-guard could not build a redacted copy of it: "
+            f"{copy.reason}. None of its contents are available; do not guess at them, "
+            "and do not change the `scan:` list to work around this. "
+            "Ask the user to run `rezunate-guard status`."
+        )
+
+    return reason
 
 
 def _before_tool(payload: dict[str, Any]) -> dict[str, Any] | None:
