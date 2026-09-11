@@ -206,27 +206,30 @@ def _disallow_redacted_copies(settings: dict) -> bool:
     """Drop our directory from `permissions`, leaving anything else there untouched.
 
     Only older installs have one: the hook now approves the copy itself.
+
+    Args:
+        settings: The parsed settings, edited in place.
+
+    Returns:
+        True if the entry was there and has been dropped.
     """
     permissions = settings.get("permissions")
-    if not isinstance(permissions, dict):
-        return False
-
-    directories = permissions.get("additionalDirectories")
-    if not isinstance(directories, list):
-        return False
+    listed = permissions.get("additionalDirectories") if isinstance(permissions, dict) else None
+    directories = listed if isinstance(listed, list) else []
 
     copies_dir = str(constants.redacted_copies_dir())
-    if copies_dir not in directories:
-        return False
-
     remaining = [entry for entry in directories if entry != copies_dir]
-    if remaining:
-        permissions["additionalDirectories"] = remaining
-    else:
-        del permissions["additionalDirectories"]
-    if not permissions:
-        del settings["permissions"]
-    return True
+    removed = len(remaining) != len(directories)
+
+    if removed:
+        if remaining:
+            permissions["additionalDirectories"] = remaining
+        else:
+            del permissions["additionalDirectories"]
+        if not permissions:
+            del settings["permissions"]
+
+    return removed
 
 
 def command_install(args: argparse.Namespace) -> int:
@@ -235,40 +238,38 @@ def command_install(args: argparse.Namespace) -> int:
     settings = _read_json(path)
 
     hooks = settings.setdefault("hooks", {})
+
+    # Checked before anything is added, so a file we would mangle is refused whole.
     if not isinstance(hooks, dict):
-        print(
-            _paint(f"{path} has a 'hooks' key that is not an object; fix it first", _RED),
-            file=sys.stderr,
-        )
-        return 1
+        error = f"{path} has a 'hooks' key that is not an object; fix it first"
+    else:
+        malformed = [event for event in HOOK_EVENTS if not isinstance(hooks.get(event, []), list)]
+        error = f"{path} has a malformed {malformed[0]} list; fix it first" if malformed else ""
 
     changes: list[str] = []
-    for event in HOOK_EVENTS:
-        entries = hooks.setdefault(event, [])
-        if not isinstance(entries, list):
-            print(
-                _paint(f"{path} has a malformed {event} list; fix it first", _RED), file=sys.stderr
-            )
-            return 1
+    if not error:
+        for event in HOOK_EVENTS:
+            entries = hooks.setdefault(event, [])
+            if not any(_is_rezunate_hook_entry(entry) for entry in entries):
+                command = {"type": "command", "command": hook_command()}
+                entries.append({"matcher": HOOK_MATCHER, "hooks": [command]})
+                changes.append(f"{event}: registered for {HOOK_MATCHER!r}")
 
-        if any(_is_rezunate_hook_entry(entry) for entry in entries):
-            continue
-
-        entries.append(
-            {"matcher": HOOK_MATCHER, "hooks": [{"type": "command", "command": hook_command()}]}
-        )
-        changes.append(f"{event}: registered for {HOOK_MATCHER!r}")
-
-    if not changes:
+    if error:
+        print(_paint(error, _RED), file=sys.stderr)
+        status = 1
+    elif not changes:
         print(f"already installed in {path}")
-        return 0
+        status = 0
+    else:
+        _write_json(path, settings)
+        for change in changes:
+            print(f"  {change}")
+        print(f"{_paint('hook installed', _GREEN)} in {path}")
+        print("Restart Claude Code, or start a new session, for it to take effect.")
+        status = 0
 
-    _write_json(path, settings)
-    for change in changes:
-        print(f"  {change}")
-    print(f"{_paint('hook installed', _GREEN)} in {path}")
-    print("Restart Claude Code, or start a new session, for it to take effect.")
-    return 0
+    return status
 
 
 def command_uninstall(args: argparse.Namespace) -> int:
@@ -282,34 +283,31 @@ def command_uninstall(args: argparse.Namespace) -> int:
     copies_removed = _disallow_redacted_copies(settings)
     hook_removed = False
     for event in HOOK_EVENTS:
-        entries = hooks.get(event)
-        if not isinstance(entries, list):
-            continue
-
+        listed = hooks.get(event)
+        entries = listed if isinstance(listed, list) else []
         remaining = [entry for entry in entries if not _is_rezunate_hook_entry(entry)]
-        if len(remaining) == len(entries):
-            continue
 
-        hook_removed = True
-        if remaining:
-            hooks[event] = remaining
-        else:
-            del hooks[event]
+        if len(remaining) != len(entries):
+            hook_removed = True
+            if remaining:
+                hooks[event] = remaining
+            else:
+                del hooks[event]
 
     if not (hook_removed or copies_removed):
         print(f"nothing to remove in {path}")
-        return 0
-
-    # Only when it really was ours to empty; a malformed `hooks` value stays as it is.
-    if isinstance(raw, dict) and not hooks:
-        del settings["hooks"]
-
-    _write_json(path, settings)
-    if hook_removed:
-        print(f"{_paint('hook removed', _YELLOW)} from {path}")
-        print(_paint("Files are no longer redacted.", _YELLOW) + " Restart Claude Code to apply.")
     else:
-        print(f"redacted-copies directory removed from {path}")
+        # Only when it really was ours to empty; a malformed `hooks` value stays as it is.
+        if isinstance(raw, dict) and not hooks:
+            del settings["hooks"]
+
+        _write_json(path, settings)
+        if hook_removed:
+            warning = _paint("Files are no longer redacted.", _YELLOW)
+            print(f"{_paint('hook removed', _YELLOW)} from {path}")
+            print(f"{warning} Restart Claude Code to apply.")
+        else:
+            print(f"redacted-copies directory removed from {path}")
 
     return 0
 
@@ -318,23 +316,26 @@ def _report_key() -> list[str]:
     """Print the API key line of `status`.
 
     Returns:
-        Problems found, for the caller to summarise. Empty when the key is fine.
+        Issues found, for the caller to summarise. Empty when the key is fine.
     """
+    issues: list[str] = []
+
     if os.environ.get(constants.API_KEY_ENV, "").strip():
         print(f"  key        {_paint('set', _GREEN)} via {constants.API_KEY_ENV}")
     elif stored_key():
         print(f"  key        {_paint('saved', _GREEN)} in {constants.credentials_path()}")
     else:
         print(f"  key        {_paint('MISSING', _RED)}")
-        return ["No API key. Run `rezunate-guard login`. Protected files will be withheld."]
-    return []
+        issues.append("No API key. Run `rezunate-guard login`. Protected files will be withheld.")
+
+    return issues
 
 
 def _report_hook() -> list[str]:
     """Print the hook lines of `status`.
 
     Returns:
-        Problems found. A half-registered hook counts as one.
+        Issues found. A half-registered hook counts as one.
     """
     installed = {
         path: events
@@ -342,66 +343,68 @@ def _report_hook() -> list[str]:
         if (events := _installed_events(path))
     }
 
+    issues: list[str] = []
     if not installed:
         print(f"  hook       {_paint('NOT INSTALLED', _RED)}")
-        return [
+        issues.append(
             "The hook is not registered. Run `rezunate-guard install`. Nothing is being redacted."
-        ]
+        )
+    else:
+        for path, events in installed.items():
+            print(f"  hook       {_paint('installed', _GREEN)} in {path} ({', '.join(events)})")
+            missing = [event for event in HOOK_EVENTS if event not in events]
+            if missing:
+                issues.append(
+                    f"Only part of the hook is registered in {path}; {', '.join(missing)} "
+                    "is missing. Run `rezunate-guard install`."
+                )
 
-    problems = []
-    for path, events in installed.items():
-        print(f"  hook       {_paint('installed', _GREEN)} in {path} ({', '.join(events)})")
-        missing = [event for event in HOOK_EVENTS if event not in events]
-        if missing:
-            problems.append(
-                f"Only part of the hook is registered in {path}; {', '.join(missing)} "
-                "is missing. Run `rezunate-guard install`."
-            )
-    return problems
+    return issues
 
 
 def _report_config() -> list[str]:
     """Print the config lines of `status`.
 
     Returns:
-        Problems found. A config protecting nothing counts as one.
+        Issues found. A config protecting nothing counts as one.
     """
     # resolve_config takes the file being read, so ask about a placeholder name in the
     # working directory.
     config = resolve_config(Path.cwd() / "x")
 
+    issues: list[str] = []
     if config.source is None:
         print(f"  config     {_paint('none found', _RED)}")
-        return [
+        issues.append(
             f"No {constants.CONFIG_FILENAME} in this directory or its parents. "
             "Run `rezunate-guard init`. Nothing is being scanned."
-        ]
+        )
+    else:
+        print(f"  config     {config.source}")
 
-    print(f"  config     {config.source}")
+        if config.error:
+            print(f"  {_paint('ERROR', _RED)}      {config.error}")
+            issues.append(
+                f"The config could not be read: {config.error}. Nothing is being scanned."
+            )
+        elif config.protects_nothing:
+            issues.append(
+                "The config lists no folders to scan, so nothing is protected. "
+                f"Add folders under `scan:` in {config.source}."
+            )
+        else:
+            missing = [directory for directory in config.scan if not directory.is_dir()]
+            for directory in config.scan:
+                mark = f"   {_paint('MISSING', _RED)}" if directory in missing else ""
+                print(f"  scan       {directory}{mark}")
 
-    if config.error:
-        print(f"  {_paint('ERROR', _RED)}      {config.error}")
-        return [f"The config could not be read: {config.error}. Nothing is being scanned."]
+            if missing:
+                issues.append(
+                    f"{len(missing)} listed folder(s) do not exist, so nothing in them is "
+                    f"protected: {', '.join(str(path) for path in missing)}."
+                )
 
-    if config.protects_nothing:
-        return [
-            "The config lists no folders to scan, so nothing is protected. "
-            f"Add folders under `scan:` in {config.source}."
-        ]
-
-    missing = []
-    for directory in config.scan:
-        exists = directory.is_dir()
-        print(f"  scan       {directory}" + ("" if exists else f"   {_paint('MISSING', _RED)}"))
-        if not exists:
-            missing.append(directory)
-
-    if missing:
-        return [
-            f"{len(missing)} listed folder(s) do not exist, so nothing in them is "
-            f"protected: {', '.join(str(path) for path in missing)}."
-        ]
-    return []
+    return issues
 
 
 def command_status(args: argparse.Namespace) -> int:
@@ -414,18 +417,20 @@ def command_status(args: argparse.Namespace) -> int:
     print(f"rezunate-guard {__version__}")
     print()
 
-    problems = _report_key() + _report_hook() + _report_config()
-    if not problems:
-        print()
-        print(_paint("Protection is active.", _GREEN))
-        return 0
+    issues = _report_key() + _report_hook() + _report_config()
 
     print()
-    heading = "Not protecting anything yet:" if len(problems) > 1 else "One thing to fix:"
-    print(_paint(heading, _RED))
-    for problem in problems:
-        print(f"  - {problem}")
-    return 1
+    if not issues:
+        print(_paint("Protection is active.", _GREEN))
+        status = 0
+    else:
+        heading = "Not protecting anything yet:" if len(issues) > 1 else "One thing to fix:"
+        print(_paint(heading, _RED))
+        for issue in issues:
+            print(f"  - {issue}")
+        status = 1
+
+    return status
 
 
 def command_check(args: argparse.Namespace) -> int:

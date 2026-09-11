@@ -120,10 +120,12 @@ def can_extract(path: Path | str) -> bool:
     try:
         head = _leading_bytes(Path(path))
     except ExtractionError:
-        return False
-    if head.startswith(b"%PDF"):
-        return shutil.which("pdftotext") is not None
-    return head.startswith(b"PK\x03\x04")
+        head = b""  # a file we cannot open is one we cannot read
+
+    is_pdf = head.startswith(b"%PDF")
+    is_office = head.startswith(b"PK\x03\x04")
+
+    return is_office or (is_pdf and shutil.which("pdftotext") is not None)
 
 
 def extract_text(path: Path | str) -> str:
