@@ -1,7 +1,8 @@
 """Rezunate LLM SDK.
 
 A unified Python library for chat completions across multiple AI providers
-(OpenAI, Anthropic, Google) using OpenAI-compatible request/response format.
+(OpenAI, Anthropic, Google, Grok, Llama, DeepSeek, Qwen) using the
+OpenAI-compatible request/response format.
 """
 
 from rezunate_llm_sdk.client import RouterAPIError, RouterClient
@@ -90,4 +91,4 @@ __all__ = [
     "list_providers",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"

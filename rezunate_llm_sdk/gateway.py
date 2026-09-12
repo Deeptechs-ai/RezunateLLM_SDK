@@ -83,10 +83,13 @@ def chat_complete(
 
     When ``request.stream`` is true, returns an iterator of streaming
     chunks instead of a single response. Output guardrails are applied
-    per chunk (log-only — no mid-stream blocking).
+    per chunk: ``flag`` and ``redact`` rules are log-only (deltas are
+    forwarded unmodified), while a ``block`` rule still raises
+    ``GuardrailsError`` out of the iterator, mid-stream.
 
     Args:
-        provider: Provider name ("openai", "anthropic", "google").
+        provider: Provider name — any Provider value ("openai", "anthropic",
+            "google", "grok", "llama", "deepseek", "qwen").
         api_key: API key for the provider.
         request: Chat completion request. Set ``stream=True`` for streaming.
         guardrails_config: Optional guardrails configuration.
