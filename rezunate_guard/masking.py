@@ -45,22 +45,26 @@ def placeholder_key() -> bytes:
     The key only stops someone guessing which values a redacted document hides, but it
     must stay stable or the same person gets a different placeholder in every file.
 
-    Tool calls run at the same time, so two processes can both try to create it. Each
-    writes its own temporary file and the last rename wins. The key is read back
-    afterwards so every process returns the winner's key, not the one it made.
+    Tool calls run at once, so two processes can both create it. Each writes its own
+    temporary file and the last rename wins, so the key is read back afterwards and
+    everyone returns the winner's.
 
     Returns:
-        32 random bytes, from `~/.rezunate/placeholder.key` (mode 0600).
+        32 random bytes from `~/.rezunate/placeholder.key`, readable only by you.
     """
     path = constants.placeholder_key_path()
+
+    key = b""
     try:
-        if existing := path.read_bytes():
-            return existing
+        key = path.read_bytes()
     except OSError:
         pass
 
-    private_file.write(path, secrets.token_bytes(32))
-    return path.read_bytes()
+    if not key:
+        private_file.write(path, secrets.token_bytes(32))
+        key = path.read_bytes()
+
+    return key
 
 
 def placeholder(label: str, value: str, key: bytes) -> str:

@@ -39,14 +39,20 @@ SNIFF_BYTES = 8192
 #: What a discriminator looks like: one short lowercase word.
 _TAG_VALUE = re.compile(r"[a-z][a-z0-9_-]{0,31}")
 
+#: One argument of a command, stopping at whatever would start a new one.
 _COMMAND_TOKEN = re.compile(r"[^\s;|&()<>\"'`]+")
+
+#: A trailing extension, so `notes.md` reads as a file but `grep` does not.
 _LOOKS_LIKE_FILE = re.compile(r"\.\w{1,8}$")
 
-#: Commands that report on a file without printing what is inside it.
+#: Commands that report on a file without printing what is inside it. `ls`, `stat`, `du`
+#: and `file` describe it; `basename`, `dirname`, `realpath` and `readlink` only rework
+#: the path; `test` answers yes or no.
 METADATA_COMMANDS = frozenset(
     {"basename", "dirname", "du", "file", "ls", "readlink", "realpath", "stat", "test"}
 )
 
+#: Where one command ends and the next begins, so each part is checked on its own.
 _SHELL_SPLIT = re.compile(r"[;|&\n]+")
 
 
@@ -64,6 +70,18 @@ class RedactedCopy(NamedTuple):
 
     path: Path | None
     reason: str = ""
+
+
+class GivenFile(NamedTuple):
+    """The file a tool was handed, and the key it arrived under.
+
+    Attributes:
+        key: The `tool_input` key naming it, so a redirect can rewrite that key.
+        path: Its absolute path. Empty, with `key`, when the tool was given no file.
+    """
+
+    key: str
+    path: str
 
 
 def redact_all(texts: list[str]) -> dict[str, str]:
@@ -182,24 +200,23 @@ def _reads_no_contents(command: str) -> bool:
     return bool(parts) and all(part and part[0] in METADATA_COMMANDS for part in parts)
 
 
-def _tool_path(payload: dict[str, Any]) -> str | None:
-    """Return the path the tool was pointed at, for replies that need one."""
+def _tool_path(payload: dict[str, Any]) -> str:
+    """Return the path the tool was pointed at, or "" if it named no file."""
     tool_input = payload.get("tool_input")
     fields = tool_input if isinstance(tool_input, dict) else {}
 
     named = [fields.get(key) for key in PATH_KEYS]
-    return next((path for path in named if isinstance(path, str) and path), None)
+    return next((path for path in named if isinstance(path, str) and path), "")
 
 
-def _named_file(payload: dict[str, Any]) -> tuple[str, str] | None:
-    """Return the key naming the file the tool was pointed at, and that file's path.
+def _given_file(payload: dict[str, Any]) -> GivenFile:
+    """Return the file the tool was given, and the key it came under.
 
-    Only a file the tool was handed directly can be swapped for another one. A path
-    picked out of a shell command cannot: rewriting `cat` in the middle of a pipeline
-    would change what the command means.
+    Only a file handed to the tool directly can be swapped for a redacted copy. We can't
+    swap a path inside a shell command without changing what the command does.
 
     Returns:
-        `(key, absolute_path)`, or None if the tool named no file.
+        The file, with empty fields if the tool was given none.
     """
     tool_input = payload.get("tool_input")
     fields = tool_input if isinstance(tool_input, dict) else {}
@@ -209,11 +226,11 @@ def _named_file(payload: dict[str, Any]) -> tuple[str, str] | None:
 
     return next(
         (
-            (key, os.path.join(base, os.path.expanduser(value)))
+            GivenFile(key, os.path.join(base, os.path.expanduser(value)))
             for key in PATH_KEYS
             if isinstance(value := fields.get(key), str) and value
         ),
-        None,
+        GivenFile("", ""),
     )
 
 
@@ -338,17 +355,10 @@ def _redacted_copy_of(path: str) -> RedactedCopy:
         try:
             text = extract.extract_text(path)
             copy_path = redacted_copy.write(path, redact_all([text])[text])
+            copy = RedactedCopy(copy_path)
         except (ExtractionError, ScanError, Blocked, MaskingError, OSError) as exc:
             log.problem(path, f"could not build a redacted copy: {exc}")
             copy = RedactedCopy(None, str(exc))
-        else:
-            if should_scan(copy_path):
-                log.problem(copy_path, "the redacted copy is itself in a protected folder")
-                copy = RedactedCopy(
-                    None, "the redacted copy would itself sit in a protected folder"
-                )
-            else:
-                copy = RedactedCopy(copy_path)
 
     return copy
 
@@ -384,78 +394,77 @@ def _before_tool(payload: dict[str, Any]) -> dict[str, Any] | None:
         A redirect or deny reply, or None to let the call run untouched.
     """
     tool_input = payload.get("tool_input")
-    if isinstance(tool_input, dict):
-        command = tool_input.get("command")
-        if isinstance(command, str) and _reads_no_contents(command):
-            return None
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    reads_no_contents = isinstance(command, str) and _reads_no_contents(command)
 
-    named = _named_file(payload)
+    # A protected file whose text we have to pull out ourselves, because what the tool
+    # returns for it is not text that PostToolUse could rewrite.
+    needs_extraction = (
+        path
+        for path in _implicated_paths(payload)
+        if os.path.isfile(path)
+        and should_scan(path)
+        and (extract.can_extract(path) or not _reaches_the_model_as_text(path))
+    )
+    file_to_extract = None if reads_no_contents else next(needs_extraction, None)
 
-    for path in _implicated_paths(payload):
-        if not os.path.isfile(path):
-            continue  # a folder, or a path that does not exist yet
-        if not should_scan(path):
-            continue
-        if not extract.can_extract(path) and _reaches_the_model_as_text(path):
-            continue
-
-        outcome = _redacted_copy_of(path)
+    reply = None
+    if file_to_extract is not None:
+        given_file = _given_file(payload)
+        copy = _redacted_copy_of(file_to_extract)
 
         # realpath rather than samefile, which raises when the tool named a path that is
         # not there. Both sides go through it, so a symlink still matches its target.
-        if (
-            isinstance(outcome, Path)
-            and named is not None
-            and os.path.realpath(named[1]) == os.path.realpath(path)
-        ):
-            return _read_instead(
-                {**payload["tool_input"], named[0]: str(outcome)},
-                f"This read returned the full text of {os.path.basename(path)}, with "
-                "personal data replaced by placeholders. Nothing failed and nothing is "
+        redirect_to_copy = (
+            copy.path is not None
+            and bool(given_file.key)
+            and os.path.realpath(given_file.path) == os.path.realpath(file_to_extract)
+        )
+        if redirect_to_copy:
+            reply = _read_instead(
+                {**payload["tool_input"], given_file.key: str(copy.path)},
+                f"This read returned the full text of {os.path.basename(file_to_extract)}, "
+                "with personal data replaced by placeholders. Nothing failed and nothing is "
                 "missing beyond those values: the file is protected, and no other way of "
                 "reading it will return more.",
             )
+        else:
+            reply = _deny(_refusal(file_to_extract, copy))
 
-        return _deny(_refusal(path, outcome))
-    return None
+    return reply
 
 
 def _rewrite_strings(value: Any, transform, field: str | None = None) -> Any:
-    """Copy a value, running `transform` over every string in it.
+    """Copy a value, rewriting every content string with `transform`.
 
-    Walking the whole response rather than reaching for a known field is what lets one
-    function serve Read's nested `file.content`, Bash's flat `stdout`, a bare string and
-    whatever an MCP server invents, without knowing any of their schemas.
-
-    Copying rather than rebuilding matters: Claude Code checks the reply against the
-    tool's schema and throws away a mismatch, sending the original unredacted output.
+    Walks the whole response, so it works for any tool without knowing its schema. The
+    shape is kept, since Claude Code drops a reply that doesn't match.
 
     Args:
         value: Any part of a tool response.
-        transform: Called with each content string, returning its replacement.
-        field: The key this value was found under. Tells structure from content.
+        transform: Turns a content string into its replacement.
+        field: The key `value` sits under, used to spot structure.
 
     Returns:
-        A copy with every content string replaced.
+        The rewritten copy.
     """
     if isinstance(value, str):
-        if not value or field in PATH_VALUED_KEYS:
-            return value
-        # A "type" holds the tag the schema checks, at any depth, and rewriting one gets
-        # the whole reply rejected — a worse leak than the tag could be. Only when it
-        # looks like a tag, since "type" is also an ordinary word.
-        if field == "type" and _TAG_VALUE.fullmatch(value):
-            return value
-        return transform(value)
+        # Leave structure alone: empty strings, paths, and "type" tags the schema checks.
+        is_content = (
+            bool(value)
+            and field not in PATH_VALUED_KEYS
+            and not (field == "type" and _TAG_VALUE.fullmatch(value))
+        )
+        rewritten = transform(value) if is_content else value
+    elif isinstance(value, dict):
+        rewritten = {name: _rewrite_strings(item, transform, name) for name, item in value.items()}
+    elif isinstance(value, list):
+        # List items have no key, so they inherit the parent's.
+        rewritten = [_rewrite_strings(item, transform, field) for item in value]
+    else:
+        rewritten = value
 
-    if isinstance(value, dict):
-        return {name: _rewrite_strings(item, transform, name) for name, item in value.items()}
-
-    if isinstance(value, list):
-        # A list does not name its items, so they keep their parent's field.
-        return [_rewrite_strings(item, transform, field) for item in value]
-
-    return value
+    return rewritten
 
 
 def _reply(updated: Any) -> dict[str, Any]:
@@ -471,9 +480,9 @@ def _reply(updated: Any) -> dict[str, Any]:
 def _is_image(payload: dict[str, Any]) -> bool:
     """Return True if the tool returned an image."""
     response = payload.get("tool_response")
-    if not isinstance(response, dict):
-        return False
-    return response.get("type") == "image" or response.get("isImage") is True
+    fields = response if isinstance(response, dict) else {}
+
+    return fields.get("type") == "image" or fields.get("isImage") is True
 
 
 def _content_is_elsewhere(response: Any) -> bool:
@@ -481,9 +490,9 @@ def _content_is_elsewhere(response: Any) -> bool:
 
     A PDF is the usual case: its pages are counted, but its text never appears.
     """
-    if not isinstance(response, dict):
-        return False
-    file = response.get("file")
+    fields = response if isinstance(response, dict) else {}
+    file = fields.get("file")
+
     return isinstance(file, dict) and not isinstance(file.get("content"), str)
 
 
@@ -541,33 +550,35 @@ def _withhold(payload: dict[str, Any], reason: str) -> dict[str, Any] | None:
     response = payload.get("tool_response")
     path = _tool_path(payload)
 
-    if (
+    read_shaped = (
         isinstance(response, dict)
         and response.get("type") == "text"
         and isinstance(response.get("file"), dict)
-    ):
-        return _replace_content(payload, notice)
+    )
 
-    if _is_image(payload) and path is not None:
+    if read_shaped:
+        reply = _replace_content(payload, notice)
+    elif _is_image(payload) and path:
         # Blanking the base64 in place would leave an image-shaped result holding
         # nothing, so send a text response instead.
-        return _reply(_as_text_response(path, notice))
+        reply = _reply(_as_text_response(path, notice))
+    elif not _holds_content(response):
+        # Asked before blanking, not discovered afterwards. Falling through on a response
+        # that did hold content would leave the original standing.
+        reply = None
+    else:
+        placed = False
 
-    # Asked before blanking, not discovered afterwards. Falling through on a response
-    # that did hold content would leave the original standing.
-    if not _holds_content(response):
-        return None
+        def blank(text: str) -> str:
+            nonlocal placed
+            takes_notice = not placed and bool(text.strip())
+            placed = placed or takes_notice
 
-    placed = False
+            return notice if takes_notice else ""
 
-    def blank(text: str) -> str:
-        nonlocal placed
-        if not placed and text.strip():
-            placed = True
-            return notice
-        return ""
+        reply = _reply(_rewrite_strings(response, blank))
 
-    return _reply(_rewrite_strings(response, blank))
+    return reply
 
 
 def respond(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -590,27 +601,29 @@ def respond(payload: dict[str, Any]) -> dict[str, Any] | None:
         Blocked: If the workspace guardrail blocks the content.
     """
     event = payload.get("hook_event_name")
-    if event == "PreToolUse":
-        return _before_tool(payload)
-    if event != "PostToolUse":
-        return None
-
     response = payload.get("tool_response")
-    if response is None:
-        return None
 
-    if not any(should_scan(path) for path in _implicated_paths(payload)):
-        return None
+    # Short-circuits, so a PreToolUse call never pays for expanding the paths it touched.
+    has_protected_output = (
+        event == "PostToolUse"
+        and response is not None
+        and any(should_scan(path) for path in _implicated_paths(payload))
+    )
 
-    if _is_image(payload):
-        return _withhold(payload, "images cannot be redacted")
-
-    if _content_is_elsewhere(response):
+    if event == "PreToolUse":
+        reply = _before_tool(payload)
+    elif not has_protected_output:
+        reply = None
+    elif _is_image(payload):
+        reply = _withhold(payload, "images cannot be redacted")
+    elif _content_is_elsewhere(response):
         # PreToolUse should have refused this. If it is not installed, withholding is all
         # that is left, since the content reaches the model by a route we never see.
-        return _withhold(payload, "this result holds content we cannot rewrite")
+        reply = _withhold(payload, "this result holds content we cannot rewrite")
+    else:
+        reply = _reply(redact_response(response))
 
-    return _reply(redact_response(response))
+    return reply
 
 
 def _reason_for(exc: BaseException) -> str:
@@ -620,9 +633,8 @@ def _reason_for(exc: BaseException) -> str:
         Our own messages, which explain themselves and never carry content. Anything
         else gives only its type name, since the message could hold a piece of the file.
     """
-    if isinstance(exc, ScanError | Blocked | MaskingError):
-        return str(exc)
-    return f"rezunate-guard failed unexpectedly ({type(exc).__name__})"
+    ours = isinstance(exc, ScanError | Blocked | MaskingError)
+    return str(exc) if ours else f"rezunate-guard failed unexpectedly ({type(exc).__name__})"
 
 
 def main() -> None:
