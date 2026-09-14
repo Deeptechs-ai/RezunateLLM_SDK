@@ -408,7 +408,7 @@ def _before_tool(payload: dict[str, Any]) -> dict[str, Any] | None:
     )
     file_to_extract = None if reads_no_contents else next(needs_extraction, None)
 
-    reply = None
+    hook_output = None
     if file_to_extract is not None:
         given_file = _given_file(payload)
         copy = _redacted_copy_of(file_to_extract)
@@ -421,7 +421,7 @@ def _before_tool(payload: dict[str, Any]) -> dict[str, Any] | None:
             and os.path.realpath(given_file.path) == os.path.realpath(file_to_extract)
         )
         if redirect_to_copy:
-            reply = _read_instead(
+            hook_output = _read_instead(
                 {**payload["tool_input"], given_file.key: str(copy.path)},
                 f"This read returned the full text of {os.path.basename(file_to_extract)}, "
                 "with personal data replaced by placeholders. Nothing failed and nothing is "
@@ -429,9 +429,9 @@ def _before_tool(payload: dict[str, Any]) -> dict[str, Any] | None:
                 "reading it will return more.",
             )
         else:
-            reply = _deny(_refusal(file_to_extract, copy))
+            hook_output = _deny(_refusal(file_to_extract, copy))
 
-    return reply
+    return hook_output
 
 
 def _rewrite_strings(value: Any, transform, field: str | None = None) -> Any:
@@ -467,7 +467,7 @@ def _rewrite_strings(value: Any, transform, field: str | None = None) -> Any:
     return rewritten
 
 
-def _reply(updated: Any) -> dict[str, Any]:
+def _replace_output(updated: Any) -> dict[str, Any]:
     """Build a PostToolUse reply that replaces the tool output."""
     return {
         "hookSpecificOutput": {
@@ -502,7 +502,7 @@ def _replace_content(payload: dict[str, Any], text: str) -> dict[str, Any]:
     The response is copied rather than rebuilt, so its shape cannot drift.
     """
     response = payload["tool_response"]
-    return _reply({**response, "file": {**response["file"], "content": text}})
+    return _replace_output({**response, "file": {**response["file"], "content": text}})
 
 
 def _as_text_response(path: str, text: str) -> dict[str, Any]:
@@ -557,15 +557,15 @@ def _withhold(payload: dict[str, Any], reason: str) -> dict[str, Any] | None:
     )
 
     if read_shaped:
-        reply = _replace_content(payload, notice)
+        hook_output = _replace_content(payload, notice)
     elif _is_image(payload) and path:
         # Blanking the base64 in place would leave an image-shaped result holding
         # nothing, so send a text response instead.
-        reply = _reply(_as_text_response(path, notice))
+        hook_output = _replace_output(_as_text_response(path, notice))
     elif not _holds_content(response):
         # Asked before blanking, not discovered afterwards. Falling through on a response
         # that did hold content would leave the original standing.
-        reply = None
+        hook_output = None
     else:
         placed = False
 
@@ -576,9 +576,9 @@ def _withhold(payload: dict[str, Any], reason: str) -> dict[str, Any] | None:
 
             return notice if takes_notice else ""
 
-        reply = _reply(_rewrite_strings(response, blank))
+        hook_output = _replace_output(_rewrite_strings(response, blank))
 
-    return reply
+    return hook_output
 
 
 def respond(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -611,19 +611,19 @@ def respond(payload: dict[str, Any]) -> dict[str, Any] | None:
     )
 
     if event == "PreToolUse":
-        reply = _before_tool(payload)
+        hook_output = _before_tool(payload)
     elif not has_protected_output:
-        reply = None
+        hook_output = None
     elif _is_image(payload):
-        reply = _withhold(payload, "images cannot be redacted")
+        hook_output = _withhold(payload, "images cannot be redacted")
     elif _content_is_elsewhere(response):
         # PreToolUse should have refused this. If it is not installed, withholding is all
         # that is left, since the content reaches the model by a route we never see.
-        reply = _withhold(payload, "this result holds content we cannot rewrite")
+        hook_output = _withhold(payload, "this result holds content we cannot rewrite")
     else:
-        reply = _reply(redact_response(response))
+        hook_output = _replace_output(redact_response(response))
 
-    return reply
+    return hook_output
 
 
 def _reason_for(exc: BaseException) -> str:
@@ -644,23 +644,23 @@ def main() -> None:
     error and the original tool output stands, so an unhandled exception here is a leak
     rather than a crash. That is why everything is caught.
     """
-    reply = None
+    hook_output = None
     payload: dict[str, Any] = {}
     try:
         payload = json.loads(sys.stdin.read() or "{}")
         if not isinstance(payload, dict):
             payload = {}
-        reply = respond(payload)
+        hook_output = respond(payload)
     except BaseException as exc:  # noqa: BLE001 - an escaping exception is a leak
         if payload.get("hook_event_name") == "PreToolUse":
             # PreToolUse ignores a withheld reply and runs the call anyway, so denying is
             # the only way to fail closed here.
-            reply = _deny(f"rezunate-guard could not vet this call: {_reason_for(exc)}")
+            hook_output = _deny(f"rezunate-guard could not vet this call: {_reason_for(exc)}")
         else:
-            reply = _withhold(payload, _reason_for(exc))
+            hook_output = _withhold(payload, _reason_for(exc))
 
-    if reply is not None:
-        sys.stdout.write(json.dumps(reply))
+    if hook_output is not None:
+        sys.stdout.write(json.dumps(hook_output))
     sys.exit(0)
 
 
