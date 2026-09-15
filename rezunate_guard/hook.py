@@ -134,22 +134,22 @@ def redact_response(response: Any) -> Any:
         ScanError: If the scan fails.
         Blocked: If the workspace guardrail blocks the content.
     """
-    pending = _strings_in(response)
+    pending = _content_strings(response)
     redacted = redact_all(pending) if pending else {}
 
     return _rewrite_strings(response, lambda text: redacted[text])
 
 
-def _strings_in(response: Any) -> list[str]:
+def _content_strings(response: Any) -> list[str]:
     """Return every string the redactor treats as content, in the order it finds them."""
-    found: list[str] = []
+    texts: list[str] = []
 
-    def note(text: str) -> str:
-        found.append(text)
+    def append_text(text: str) -> str:
+        texts.append(text)
         return text
 
-    _rewrite_strings(response, note)
-    return found
+    _rewrite_strings(response, append_text)
+    return texts
 
 
 def _paths_in_command(command: str) -> list[str]:
@@ -532,7 +532,7 @@ def _holds_content(response: Any) -> bool:
 
     Walks with the redactor, so the two can never disagree about what counts.
     """
-    return any(text.strip() for text in _strings_in(response))
+    return any(text.strip() for text in _content_strings(response))
 
 
 def _withhold(payload: dict[str, Any], reason: str) -> dict[str, Any] | None:
