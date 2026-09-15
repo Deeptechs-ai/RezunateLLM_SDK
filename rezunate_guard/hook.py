@@ -60,6 +60,10 @@ class Blocked(Exception):
     """The workspace guardrail blocks this content rather than redacting it."""
 
 
+#: Failures we raise on purpose. Their messages explain themselves and never carry content.
+EXPECTED_ERRORS = (ScanError, Blocked, MaskingError)
+
+
 class RedactedCopy(NamedTuple):
     """A stand-in for a file whose contents the model cannot be shown.
 
@@ -633,8 +637,9 @@ def _reason_for(exc: BaseException) -> str:
         Our own messages, which explain themselves and never carry content. Anything
         else gives only its type name, since the message could hold a piece of the file.
     """
-    ours = isinstance(exc, ScanError | Blocked | MaskingError)
-    return str(exc) if ours else f"rezunate-guard failed unexpectedly ({type(exc).__name__})"
+    fallback_error_message = f"rezunate-guard failed unexpectedly ({type(exc).__name__})"
+
+    return str(exc) if isinstance(exc, EXPECTED_ERRORS) else fallback_error_message
 
 
 def main() -> None:

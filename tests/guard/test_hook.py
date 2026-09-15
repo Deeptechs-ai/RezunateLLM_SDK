@@ -40,8 +40,8 @@ def read_payload(path: Path, content: str) -> dict:
     }
 
 
-def updated_file(reply: dict) -> dict:
-    return reply["hookSpecificOutput"]["updatedToolOutput"]["file"]
+def updated_file(hook_output: dict) -> dict:
+    return hook_output["hookSpecificOutput"]["updatedToolOutput"]["file"]
 
 
 class TestPassThrough:
@@ -187,9 +187,9 @@ class TestEveryReadPath:
     def test_a_failed_scan_withholds_bash_output(self, project, monkeypatch):
         """Fail-closed has to hold for shapes other than Read's."""
         payload = self.bash_payload(f"cat {project / 'clients/acme.md'}", "Ali Hassan")
-        reply = run_hook(payload)  # no API key, so the scan cannot run
-        updated = reply["hookSpecificOutput"]["updatedToolOutput"]
-        assert "Ali Hassan" not in json.dumps(reply)
+        hook_output = run_hook(payload)  # no API key, so the scan cannot run
+        updated = hook_output["hookSpecificOutput"]["updatedToolOutput"]
+        assert "Ali Hassan" not in json.dumps(hook_output)
         assert "withheld" in updated["stdout"]
         assert set(updated) == {"stdout", "stderr", "interrupted", "isImage"}
 
@@ -239,10 +239,10 @@ class TestContentThatArrivesOutsideTheResult:
             "tool_input": {"file_path": str(path)},
         }
 
-    def denial(self, reply: dict) -> str:
-        assert reply["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
-        assert reply["hookSpecificOutput"]["permissionDecision"] == "deny"
-        return reply["hookSpecificOutput"]["permissionDecisionReason"]
+    def denial(self, hook_output: dict) -> str:
+        assert hook_output["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
+        assert hook_output["hookSpecificOutput"]["permissionDecision"] == "deny"
+        return hook_output["hookSpecificOutput"]["permissionDecisionReason"]
 
     def test_a_command_that_only_reports_on_a_file_still_runs(self, project):
         """`ls` on a protected PDF prints a size, not a page of it.
@@ -440,8 +440,8 @@ class TestContentThatArrivesOutsideTheResult:
             hook.main()
 
         assert exit_info.value.code == 0  # anything else and Claude Code runs the tool
-        reply = json.loads(capsys.readouterr().out)
-        assert reply["hookSpecificOutput"]["permissionDecision"] == "deny"
+        hook_output = json.loads(capsys.readouterr().out)
+        assert hook_output["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
 class TestRedaction:
@@ -449,13 +449,13 @@ class TestRedaction:
         monkeypatch.setattr(
             hook, "redact_all", lambda texts: dict.fromkeys(texts, "[NAME], [PHONE]")
         )
-        reply = hook.respond(read_payload(project / "clients/acme.md", "Ali Hassan, +971"))
-        assert updated_file(reply)["content"] == "[NAME], [PHONE]"
+        hook_output = hook.respond(read_payload(project / "clients/acme.md", "Ali Hassan, +971"))
+        assert updated_file(hook_output)["content"] == "[NAME], [PHONE]"
 
     def test_reply_names_the_right_event(self, project, monkeypatch):
         monkeypatch.setattr(hook, "redact_all", lambda texts: dict.fromkeys(texts, "clean"))
-        reply = hook.respond(read_payload(project / "clients/acme.md", "dirty"))
-        assert reply["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
+        hook_output = hook.respond(read_payload(project / "clients/acme.md", "dirty"))
+        assert hook_output["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
 
     def test_surrounding_fields_survive_untouched(self, project, monkeypatch):
         """Claude Code checks our reply against Read's schema; drop a field and it
@@ -486,16 +486,16 @@ class TestFailClosed:
             hook.respond(payload)
 
         # main() is the layer that catches it, so check the whole path.
-        reply = run_hook(payload, redactor_raises=True)
-        assert "Ali Hassan" not in json.dumps(reply)
-        assert "withheld" in updated_file(reply)["content"]
+        hook_output = run_hook(payload, redactor_raises=True)
+        assert "Ali Hassan" not in json.dumps(hook_output)
+        assert "withheld" in updated_file(hook_output)["content"]
 
     def test_missing_credentials_withhold_rather_than_leak(self, project):
         """No API key means no scan. The file must not go through unscanned."""
         payload = read_payload(project / "clients/acme.md", "Ali Hassan")
-        reply = run_hook(payload)
-        content = updated_file(reply)["content"]
-        assert "Ali Hassan" not in json.dumps(reply)
+        hook_output = run_hook(payload)
+        content = updated_file(hook_output)["content"]
+        assert "Ali Hassan" not in json.dumps(hook_output)
         assert "withheld" in content
         # The notice reaches the model, so it has to say what the user should do.
         assert "rezunate-guard login" in content
@@ -509,9 +509,9 @@ class TestFailClosed:
 
         monkeypatch.setattr(hook, "redact_all", boom)
         payload = read_payload(project / "clients/acme.md", "Ali Hassan")
-        reply = run_hook(payload, redactor_raises=True, secret="Ali Hassan")
-        assert "Ali Hassan" not in json.dumps(reply)
-        assert "RuntimeError" in updated_file(reply)["content"]
+        hook_output = run_hook(payload, redactor_raises=True, secret="Ali Hassan")
+        assert "Ali Hassan" not in json.dumps(hook_output)
+        assert "RuntimeError" in updated_file(hook_output)["content"]
 
     def test_a_blocked_verdict_from_the_api_withholds_content(self, project, monkeypatch):
         """The other blocked test stubs the redactor, so it only proves the stub raised.
@@ -524,8 +524,8 @@ class TestFailClosed:
         with pytest.raises(hook.Blocked):
             hook.respond(payload)
 
-        reply = hook._withhold(payload, "blocked")
-        assert "Ali Hassan" not in json.dumps(reply)
+        hook_output = hook._withhold(payload, "blocked")
+        assert "Ali Hassan" not in json.dumps(hook_output)
 
     def test_blocked_content_is_withheld(self, project, monkeypatch):
         """A workspace guardrail set to block, not redact, must stop the read."""
@@ -538,8 +538,8 @@ class TestFailClosed:
             hook.respond(read_payload(project / "clients/acme.md", "Ali Hassan"))
 
     def test_withheld_reply_keeps_the_response_shape(self, project):
-        reply = run_hook(read_payload(project / "clients/acme.md", "secret"))
-        updated = reply["hookSpecificOutput"]["updatedToolOutput"]
+        hook_output = run_hook(read_payload(project / "clients/acme.md", "secret"))
+        updated = hook_output["hookSpecificOutput"]["updatedToolOutput"]
         assert updated["type"] == "text"
         assert set(updated["file"]) == {"filePath", "content", "numLines"}
 
@@ -552,12 +552,12 @@ class TestFailClosed:
             "tool_input": {"file_path": str(image)},
             "tool_response": {"type": "image", "file": {"base64": "iVBORw0KGgo=", "type": "png"}},
         }
-        reply = hook.respond(payload)
-        assert "iVBORw0KGgo=" not in json.dumps(reply)
+        hook_output = hook.respond(payload)
+        assert "iVBORw0KGgo=" not in json.dumps(hook_output)
 
         # Replaced outright, not merged into — a merge would leave the base64 beside
         # the notice. This is the shape Claude Code itself uses to strip an image.
-        updated = reply["hookSpecificOutput"]["updatedToolOutput"]
+        updated = hook_output["hookSpecificOutput"]["updatedToolOutput"]
         assert updated["type"] == "text"
         assert set(updated["file"]) == {
             "filePath",
@@ -581,11 +581,11 @@ class TestFailClosed:
     def test_any_response_holding_content_gets_a_notice(self, response):
         """`main` prints nothing for None, so returning None while content is present
         would leave the original output standing."""
-        reply = hook._withhold({"tool_response": response}, "the scan failed")
+        hook_output = hook._withhold({"tool_response": response}, "the scan failed")
 
-        assert reply is not None
-        assert "Ali Hassan" not in json.dumps(reply)
-        assert "rezunate-guard" in json.dumps(reply)
+        assert hook_output is not None
+        assert "Ali Hassan" not in json.dumps(hook_output)
+        assert "rezunate-guard" in json.dumps(hook_output)
 
     @pytest.mark.parametrize(
         "response",
@@ -629,7 +629,7 @@ def run_hook(payload: dict, redactor_raises: bool = False, secret: str = "boom")
 
 
 class TestEndToEnd:
-    """config -> scan -> mask -> reply, with only the network stubbed out."""
+    """config -> scan -> mask -> hook_output, with only the network stubbed out."""
 
     def test_a_protected_read_comes_back_masked(self, project, monkeypatch):
         text = "Patient Ali Hassan, phone +971501234567, seen Tuesday."
@@ -655,8 +655,8 @@ class TestEndToEnd:
             lambda texts: [fake_api(text) for text in texts],
         )
 
-        reply = hook.respond(read_payload(project / "clients/acme.md", text))
-        content = updated_file(reply)["content"]
+        hook_output = hook.respond(read_payload(project / "clients/acme.md", text))
+        content = updated_file(hook_output)["content"]
 
         assert "Ali Hassan" not in content
         assert "+971501234567" not in content
@@ -672,8 +672,8 @@ class TestEndToEnd:
             lambda texts: [{"entities": [], "blocked": False} for _ in texts],
         )
         text = "Meeting notes: ship the thing on Friday."
-        reply = hook.respond(read_payload(project / "clients/acme.md", text))
-        assert updated_file(reply)["content"] == text
+        hook_output = hook.respond(read_payload(project / "clients/acme.md", text))
+        assert updated_file(hook_output)["content"] == text
 
     def test_the_same_person_masks_alike_in_two_files(self, project, monkeypatch):
         """No vault, no counter — the placeholder comes from the value, so two separate
@@ -753,8 +753,8 @@ class TestServingARedactedCopy:
             hook, "redact_all", lambda texts: {t: t.replace("Ali Hassan", "[NAME]") for t in texts}
         )
 
-    def redirect(self, reply: dict) -> dict:
-        output = reply["hookSpecificOutput"]
+    def redirect(self, hook_output: dict) -> dict:
+        output = hook_output["hookSpecificOutput"]
         assert output["hookEventName"] == "PreToolUse"
         return output["updatedInput"]
 
@@ -779,14 +779,14 @@ class TestServingARedactedCopy:
     def test_the_reply_approves_the_copy(self, project, make_docx):
         """Left open, the copy goes through the usual permission check and is refused for
         sitting outside the working directories. It is a file we wrote ourselves."""
-        reply = hook.respond(self.pre_payload(make_docx(project / "clients/cv.docx")))
-        assert reply["hookSpecificOutput"]["permissionDecision"] == "allow"
+        hook_output = hook.respond(self.pre_payload(make_docx(project / "clients/cv.docx")))
+        assert hook_output["hookSpecificOutput"]["permissionDecision"] == "allow"
 
     def test_the_redirect_does_not_read_as_a_failure(self, project, make_docx):
         """Told its read was intercepted, the model reports the file as blocked and offers
         to work around the guard. It needs to hear that the read succeeded."""
-        reply = hook.respond(self.pre_payload(make_docx(project / "clients/cv.docx")))
-        reason = reply["hookSpecificOutput"]["permissionDecisionReason"]
+        hook_output = hook.respond(self.pre_payload(make_docx(project / "clients/cv.docx")))
+        reason = hook_output["hookSpecificOutput"]["permissionDecisionReason"]
         assert "returned the full text" in reason
         assert "Nothing failed" in reason
 
@@ -801,8 +801,8 @@ class TestServingARedactedCopy:
     def test_a_file_we_cannot_extract_is_still_denied(self, project):
         blob = project / "clients/export.dat"
         blob.write_bytes(bytes(range(256)) * 4)
-        reply = hook.respond(self.pre_payload(blob))
-        assert reply["hookSpecificOutput"]["permissionDecision"] == "deny"
+        hook_output = hook.respond(self.pre_payload(blob))
+        assert hook_output["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     def test_a_failed_scan_denies_rather_than_serving_the_original(
         self, project, make_docx, monkeypatch
@@ -814,29 +814,29 @@ class TestServingARedactedCopy:
             raise ScanError("no API key")
 
         monkeypatch.setattr(hook, "redact_all", explode)
-        reply = hook.respond(self.pre_payload(make_docx(project / "clients/cv.docx")))
-        assert reply["hookSpecificOutput"]["permissionDecision"] == "deny"
+        hook_output = hook.respond(self.pre_payload(make_docx(project / "clients/cv.docx")))
+        assert hook_output["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     def test_blocked_content_denies(self, project, make_docx, monkeypatch):
         def blocked(texts):
             raise hook.Blocked("the workspace guardrail is set to block this content")
 
         monkeypatch.setattr(hook, "redact_all", blocked)
-        reply = hook.respond(self.pre_payload(make_docx(project / "clients/cv.docx")))
-        assert reply["hookSpecificOutput"]["permissionDecision"] == "deny"
+        hook_output = hook.respond(self.pre_payload(make_docx(project / "clients/cv.docx")))
+        assert hook_output["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     def test_cat_on_a_protected_docx_is_still_denied(self, project, make_docx):
         """A path inside a shell command cannot be swapped: rewriting the middle of a
         pipeline would change what the command does."""
         docx = make_docx(project / "clients/cv.docx")
-        reply = hook.respond(
+        hook_output = hook.respond(
             {
                 "hook_event_name": "PreToolUse",
                 "tool_name": "Bash",
                 "tool_input": {"command": f"cat {docx}"},
             }
         )
-        assert reply["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert hook_output["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     def test_a_document_that_reads_as_text_is_still_extracted(self, project, make_pdf):
         """A metadata-heavy PDF can be pure ASCII for the whole sniff and still deliver
