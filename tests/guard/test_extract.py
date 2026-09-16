@@ -35,6 +35,40 @@ class TestOfficeFiles:
     def test_text_comes_out_of_a_docx(self, tmp_path, make_docx):
         assert extract_text(make_docx(tmp_path / "a.docx")) == "Ali Hassan"
 
+    def test_slides_come_out_in_order(self, tmp_path):
+        """Sorted as text, slide10 lands between slide1 and slide2."""
+        path = tmp_path / "deck.pptx"
+        with zipfile.ZipFile(path, "w") as archive:
+            for number in range(1, 13):
+                archive.writestr(
+                    f"ppt/slides/slide{number}.xml",
+                    f"<p:sld><a:p><a:t>slide {number}</a:t></a:p></p:sld>",
+                )
+        lines = [line for line in extract_text(path).splitlines() if line]
+        assert lines == [f"slide {n}" for n in range(1, 13)]
+
+    def test_speaker_notes_are_read(self, tmp_path):
+        path = tmp_path / "deck.pptx"
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("ppt/slides/slide1.xml", "<a:p><a:t>Quarterly review</a:t></a:p>")
+            archive.writestr(
+                "ppt/notesSlides/notesSlide1.xml", "<a:p><a:t>Call Ali Hassan first</a:t></a:p>"
+            )
+        assert "Ali Hassan" in extract_text(path)
+
+    def test_headers_and_footers_are_read(self, tmp_path):
+        """A letterhead footer is exactly where a name and phone number hide."""
+        path = tmp_path / "letter.docx"
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("word/document.xml", "<w:p><w:t>Dear Sir</w:t></w:p>")
+            archive.writestr("word/header1.xml", "<w:p><w:t>Acme Ltd</w:t></w:p>")
+            archive.writestr(
+                "word/footer1.xml", "<w:p><w:t>Ali Hassan, +971 50 123 4567</w:t></w:p>"
+            )
+        text = extract_text(path)
+        assert "Ali Hassan" in text
+        assert "Acme Ltd" in text
+
     def test_a_docx_is_recognised_by_its_bytes(self, tmp_path, make_docx):
         renamed = make_docx(tmp_path / "notes.txt")
         assert can_extract(renamed) and extract_text(renamed) == "Ali Hassan"

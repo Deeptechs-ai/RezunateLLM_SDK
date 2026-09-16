@@ -15,9 +15,18 @@ EXTRACT_TIMEOUT_SECONDS = 60
 #: Parts of an Office file worth reading, in the order they should appear.
 _OFFICE_PARTS = (
     "word/document.xml",
+    "word/header",
+    "word/footer",
+    "word/footnotes.xml",
+    "word/endnotes.xml",
+    "word/comments.xml",
     "xl/sharedStrings.xml",
     "ppt/slides/slide",
+    "ppt/notesSlides/notesSlide",
 )
+
+#: Digits inside a part name, so `slide10` sorts after `slide9` rather than after `slide1`.
+_PART_NUMBER = re.compile(r"(\d+)")
 
 #: Where one block of text ends and the next begins. Without this every paragraph in a
 #: Word file would run into the one after it.
@@ -50,6 +59,20 @@ def strip_markup(markup: str) -> str:
     # Trailing spaces are what is left where a tag used to be.
     text = "\n".join(line.strip() for line in text.splitlines())
     return _BLANK_RUN.sub("\n\n", text).strip()
+
+
+def _part_order(name: str) -> tuple[tuple[int, int | str], ...]:
+    """Order a part by its number rather than by its digits as text.
+
+    Args:
+        name: The part's name inside the archive.
+
+    Returns:
+        A sort key: numbers ordered as numbers, everything else as text.
+    """
+    return tuple(
+        (0, int(chunk)) if chunk.isdigit() else (1, chunk) for chunk in _PART_NUMBER.split(name)
+    )
 
 
 def _leading_bytes(path: Path, count: int = 8) -> bytes:
@@ -100,7 +123,7 @@ def _from_office(path: Path) -> str:
         with zipfile.ZipFile(path) as archive:
             names = [
                 name
-                for name in sorted(archive.namelist())
+                for name in sorted(archive.namelist(), key=_part_order)
                 if name.startswith(_OFFICE_PARTS) and name.endswith(".xml")
             ]
             if not names:
