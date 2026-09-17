@@ -27,7 +27,7 @@ from rezunate_llm_sdk.models import (
 )
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
-SCAN_URL = f"{constants.ROUTER_BASE_URL}/api/v1/guardrails/scan"
+SCAN_URL = f"{constants.REZUNATE_LLM_BASE_URL}/api/v1/guardrails/scan"
 ROUTER_KEY = "rez-test-key"
 
 NO_LOCAL_RULES = GuardrailsConfig(guardrails=[])
