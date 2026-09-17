@@ -297,11 +297,8 @@ def scan_decision(file_path: Path | str, config: GuardConfig | None = None) -> D
 
     if not path.is_relative_to(config.root.resolve()):
         # Almost certainly an --add-dir file, so let its own config answer.
-        own_config = resolve_config(path)
-        if own_config.root != config.root:
-            decision = scan_decision(path, own_config)
-            return Decision(decision.should_scan, f"outside config root; {decision.reason}")
-        return Decision(False, "outside config root and no config of its own")
+        decision = scan_decision(path, resolve_config(path))
+        return Decision(decision.should_scan, f"outside config root; {decision.reason}")
 
     reason = (
         "no folders configured for scanning"

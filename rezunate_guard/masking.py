@@ -17,9 +17,6 @@ class MaskingError(Exception):
     """Spans could not be masked safely. Callers must withhold the content."""
 
 
-#: A complete placeholder: [TAG_abcd].
-PLACEHOLDER_RE = re.compile(r"\[[A-Z0-9_]+_[0-9a-f]+\]")
-
 #: Hex digits per placeholder. Four gives 65,536 tokens per label, so a clash needs a
 #: few hundred people in one document. A clash merges two placeholders but leaks nothing.
 SUFFIX_DIGITS = 4

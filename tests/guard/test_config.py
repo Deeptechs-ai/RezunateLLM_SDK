@@ -277,6 +277,20 @@ class TestPathResolution:
 
         assert scan_decision(outside, config).should_scan is True
 
+    def test_a_resolved_config_always_sits_above_its_file(self, tmp_path):
+        """What keeps `scan_decision` from recursing, and its outside-root branch from
+        firing for callers that pass no config."""
+        write(tmp_path / "proj", constants.CONFIG_FILENAME, "scan:\n  - clients\n")
+        paths = [
+            write(tmp_path / "proj", "clients/a.md"),
+            write(tmp_path / "proj", "deep/b.md"),
+            write(tmp_path / "elsewhere", "c.md"),
+            Path("/etc/hosts"),
+        ]
+        for path in paths:
+            resolved = path.resolve()
+            assert resolved.is_relative_to(resolve_config(resolved).root.resolve())
+
     def test_file_outside_any_config_is_not_scanned(self, tmp_path):
         project = tmp_path / "project"
         config = config_for(project, "scan:\n  - '.'\n")

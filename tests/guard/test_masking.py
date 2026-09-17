@@ -10,13 +10,14 @@ import pytest
 
 from rezunate_guard import constants
 from rezunate_guard.masking import (
-    PLACEHOLDER_RE,
     MaskingError,
     mask,
     placeholder,
     placeholder_key,
 )
 from rezunate_guard.scanner import Entity
+
+PLACEHOLDER_RE = re.compile(r"\[[A-Z0-9_]+_[0-9a-f]+\]")
 
 
 def entity(start, end, label="PERSON", score=0.9):
