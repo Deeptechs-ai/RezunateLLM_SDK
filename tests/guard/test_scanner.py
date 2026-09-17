@@ -8,6 +8,7 @@ from urllib.error import HTTPError, URLError
 import pytest
 
 from rezunate_guard import constants, scanner
+from rezunate_guard.masking import mask
 from rezunate_guard.scanner import (
     CHUNK_CHARS,
     MAX_BATCH_TEXTS,
@@ -158,9 +159,21 @@ class TestMerge:
         kept = drop_overlaps([entity(0, 10, label="PERSON"), entity(0, 10, label="ORG")])
         assert len(kept) == 1
 
-    def test_partial_overlap_is_resolved(self):
+    def test_partial_overlap_widens_the_winner(self):
+        """Dropping the loser would leave 10:15 — text a model flagged — in the clear."""
         kept = drop_overlaps([entity(0, 10, label="PERSON"), entity(5, 15, label="EMAIL")])
-        assert [(e.start, e.end) for e in kept] == [(0, 10)]
+        assert [(e.start, e.end, e.label) for e in kept] == [(0, 15, "PERSON")]
+
+    def test_a_chain_of_partial_overlaps_is_covered(self):
+        kept = drop_overlaps([entity(0, 10), entity(5, 15), entity(12, 30)])
+        assert [(e.start, e.end) for e in kept] == [(0, 30)]
+
+    def test_nothing_a_model_flagged_survives_masking(self):
+        """The property mask() depends on: every flagged character ends up inside a span."""
+        text = "Ali Hassan ali.hassan@example.com"
+        spans = [entity(0, 10, label="PERSON_NAME"), entity(5, len(text), label="EMAIL")]
+        masked = mask(text, drop_overlaps(spans), b"k" * 32)
+        assert "ali.hassan@example.com" not in masked
 
     def test_result_is_always_disjoint_and_sorted(self):
         """The invariant the masker depends on."""

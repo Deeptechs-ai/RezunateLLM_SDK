@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Iterable, Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -101,12 +101,15 @@ def drop_overlaps(entities: Iterable[Entity]) -> tuple[Entity, ...]:
         entities: Detected spans, in any order.
 
     Returns:
-        Spans sorted by start, with no two overlapping.
+        Spans sorted by start, with no two overlapping, covering every character any
+        detection claimed.
     """
     kept: list[Entity] = []
     for entity in sorted(entities, key=lambda e: (e.start, -e.end, -e.score)):
         if not kept or entity.start >= kept[-1].end:
             kept.append(entity)
+        elif entity.end > kept[-1].end:
+            kept[-1] = replace(kept[-1], end=entity.end)
     return tuple(kept)
 
 
