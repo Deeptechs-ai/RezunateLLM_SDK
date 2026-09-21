@@ -79,7 +79,7 @@ class RouterClient:
         Raises:
             RouterAPIError: On connection, timeout, or HTTP errors.
         """
-        url = f"{constants.ROUTER_BASE_URL}{path}"
+        url = f"{constants.REZUNATE_LLM_BASE_URL}{path}"
         headers = {"X-API-Key": self.api_key, **kwargs.pop("headers", {})}
         timeout = kwargs.pop("timeout", self.timeout)
 
@@ -88,7 +88,7 @@ class RouterClient:
             resp.raise_for_status()
         except requests.ConnectionError as exc:
             raise RouterAPIError(
-                f"Cannot connect to Rezunate LLM API at {constants.ROUTER_BASE_URL}"
+                f"Cannot connect to Rezunate LLM API at {constants.REZUNATE_LLM_BASE_URL}"
             ) from exc
         except requests.Timeout as exc:
             raise RouterAPIError(

@@ -57,7 +57,8 @@ def get_provider(provider_name: str | Provider, api_key: str, **kwargs) -> BaseP
     Get a provider instance by name using Factory Method Pattern.
 
     Args:
-        provider_name: Name of the provider (openai, anthropic, google)
+        provider_name: Name of the provider (any Provider value, e.g. openai,
+            anthropic, google, grok, llama, deepseek, qwen)
         api_key: API key for the provider
         **kwargs: Additional provider-specific arguments
 
