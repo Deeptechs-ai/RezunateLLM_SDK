@@ -10,7 +10,13 @@ import sys
 from pathlib import Path
 
 from rezunate_guard import __version__, constants, private_file
-from rezunate_guard.config import CONFIG_TEMPLATE, resolve_config, resolve_workspace, scan_decision
+from rezunate_guard.config import (
+    CONFIG_TEMPLATE,
+    GuardConfig,
+    resolve_config,
+    resolve_workspace,
+    scan_decision,
+)
 from rezunate_guard.hook import main as hook_main
 from rezunate_guard.scanner import saved_keys, stored_key
 
@@ -157,13 +163,16 @@ def _prompt_for_key() -> str:
     return key.strip()
 
 
-def _current_workspace() -> str:
+def _current_workspace(config: GuardConfig | None = None) -> str:
     """Return the workspace a file in this folder would be scanned under.
+
+    Args:
+        config: This folder's config, when the caller already has it.
 
     Returns:
         The workspace name, or "" when no config governs this folder.
     """
-    return resolve_workspace(Path.cwd())
+    return resolve_workspace(Path.cwd(), config)
 
 
 def command_login(args: argparse.Namespace) -> int:
@@ -174,13 +183,12 @@ def command_login(args: argparse.Namespace) -> int:
     config = resolve_config(Path.cwd())
     if config.source is None:
         message = (
-            f"no {constants.CONFIG_FILENAME} here; "
-            "run `rezunate-guard init` in your project first"
+            f"no {constants.CONFIG_FILENAME} here; run `rezunate-guard init` in your project first"
         )
         print(_paint(message, _RED), file=sys.stderr)
         return 1
 
-    workspace = _current_workspace()
+    workspace = _current_workspace(config)
     key = (args.key or "").strip() or _prompt_for_key()
 
     if not key:

@@ -316,16 +316,19 @@ def scan_decision(file_path: Path | str, config: GuardConfig | None = None) -> D
     return Decision(False, reason)
 
 
-def resolve_workspace(file_path: Path | str) -> str:
+def resolve_workspace(file_path: Path | str, config: GuardConfig | None = None) -> str:
     """Return the name of the saved key a file should be scanned with.
 
     Args:
         file_path: The file being read, or a folder, which is judged by its own config.
+        config: The config governing it. Resolved from the path itself if omitted, so a
+            caller holding one already does not send us looking for it again.
 
     Returns:
         The workspace name, or "" for a path under no config, which has no key.
     """
-    config = resolve_config(Path(file_path).resolve())
+    if config is None:
+        config = resolve_config(Path(file_path).resolve())
     if config.source is None:
         return ""
     return config.workspace or config.root.name
