@@ -51,12 +51,14 @@ class GuardConfig:
     Attributes:
         root: The folder this config sits in.
         scan: Protected folders, as absolute paths.
+        workspace: Which saved key to scan with.
         source: The file this came from, if any.
         error: Why the config couldn't be read. Nothing is protected while it is set.
     """
 
     root: Path
     scan: tuple[Path, ...] = ()
+    workspace: str = ""
     source: Path | None = None
     error: str | None = None
 
@@ -205,15 +207,15 @@ def load_config(config_path: Path) -> GuardConfig:
     return _PARSED[key]
 
 
-def _parse_scan_list(text: str, root: Path) -> tuple[Path, ...]:
-    """Read the `scan:` list out of a config file's text.
+def _parse_scan_list(text: str, root: Path) -> tuple[tuple[Path, ...], str]:
+    """Read the `scan:` list and `workspace:` name out of a config file's text.
 
     Args:
         text: The file's contents.
         root: The folder the config sits in, which relative entries hang off.
 
     Returns:
-        The folders listed, as absolute paths.
+        The folders listed as absolute paths, and the workspace name, empty if unset.
 
     Raises:
         ValueError: If the file cannot be understood.
@@ -227,11 +229,17 @@ def _parse_scan_list(text: str, root: Path) -> tuple[Path, ...]:
     if not isinstance(raw, dict):
         raise ValueError("config root must be a mapping")
 
-    unknown = sorted(set(raw) - {"scan"})
-    if unknown:
-        raise ValueError(f"unknown setting {unknown[0]!r}; expected `scan:`")
+    unknown_settings = sorted(set(raw) - {"scan", "workspace"})
+    if unknown_settings:
+        raise ValueError(
+            f"unknown setting {unknown_settings[0]!r}; expected `scan:` or `workspace:`"
+        )
 
-    return _listed_folders(raw.get("scan"), root)
+    workspace = raw.get("workspace", "")
+    if not isinstance(workspace, str):
+        raise ValueError(f"`workspace:` must be a name, not {workspace!r}")
+
+    return _listed_folders(raw.get("scan"), root), workspace.strip()
 
 
 def _parse(config_path: Path, text: str) -> GuardConfig:
@@ -239,7 +247,7 @@ def _parse(config_path: Path, text: str) -> GuardConfig:
     root = config_path.parent
 
     try:
-        scan = _parse_scan_list(text, root)
+        scan, workspace = _parse_scan_list(text, root)
     except (ValueError, OSError) as exc:
         return broken_config(root, config_path, str(exc))
 
@@ -252,7 +260,7 @@ def _parse(config_path: Path, text: str) -> GuardConfig:
         if not directory.is_dir():
             log.problem(config_path, f"folder not found: {directory}")
 
-    return GuardConfig(root=root, scan=scan, source=config_path)
+    return GuardConfig(root=root, scan=scan, source=config_path, workspace=workspace)
 
 
 def resolve_config(file_path: Path) -> GuardConfig:
@@ -306,6 +314,21 @@ def scan_decision(file_path: Path | str, config: GuardConfig | None = None) -> D
         else "not in a protected folder"
     )
     return Decision(False, reason)
+
+
+def resolve_workspace(file_path: Path | str) -> str:
+    """Return the name of the saved key a file should be scanned with.
+
+    Args:
+        file_path: The file being read, or a folder, which is judged by its own config.
+
+    Returns:
+        The workspace name, or "" for a path under no config, which has no key.
+    """
+    config = resolve_config(Path(file_path).resolve())
+    if config.source is None:
+        return ""
+    return config.workspace or config.root.name
 
 
 def should_scan(file_path: Path | str, config: GuardConfig | None = None) -> bool:

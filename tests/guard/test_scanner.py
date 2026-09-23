@@ -40,7 +40,7 @@ def entity(start, end, label="PERSON", score=0.9):
 def responder(*, entities=(), blocked=False):
     """A stand-in for the API that returns fixed entities for every text in the batch."""
 
-    def sender(texts):
+    def sender(texts, workspace=""):
         return [{"entities": list(entities), "blocked": blocked, "action": "redact"} for _ in texts]
 
     return sender
@@ -65,7 +65,7 @@ def finder(needle, label="PHONE"):
             start = text.find(needle, start + 1)
         return {"entities": found, "blocked": False}
 
-    def sender(texts):
+    def sender(texts, workspace=""):
         return [scan_one(text) for text in texts]
 
     return sender
@@ -205,7 +205,7 @@ class TestScan:
         assert scan("some text").blocked is True
 
     def test_blocked_from_any_chunk_wins(self, sending):
-        def sender(texts):
+        def sender(texts, workspace=""):
             return [{"entities": [], "blocked": index == 1} for index, _ in enumerate(texts)]
 
         sending(sender)
@@ -213,17 +213,17 @@ class TestScan:
 
     def test_missing_entity_list_is_an_error(self, sending):
         with pytest.raises(ScanError, match="entity list"):
-            sending(lambda texts: [{"blocked": False}])
+            sending(lambda texts, workspace="": [{"blocked": False}])
             scan("text")
 
     def test_malformed_entity_is_an_error(self, sending):
         with pytest.raises(ScanError, match="malformed"):
-            sending(lambda texts: [{"entities": [{"start": "nope"}]}])
+            sending(lambda texts, workspace="": [{"entities": [{"start": "nope"}]}])
             scan("text")
 
     def test_non_object_response_is_an_error(self, sending):
         with pytest.raises(ScanError, match="not an object"):
-            sending(lambda texts: ["unexpected"])
+            sending(lambda texts, workspace="": ["unexpected"])
             scan("text")
 
 
@@ -234,7 +234,7 @@ class TestBatching:
     def sending_recorder(self):
         sent = []
 
-        def send(texts):
+        def send(texts, workspace=""):
             sent.append(list(texts))
             return [{"entities": [], "blocked": False} for _ in texts]
 
@@ -281,7 +281,7 @@ class TestBatching:
                 assert text[found.start : found.end] == needle
 
     def test_blocked_is_reported_against_the_text_that_caused_it(self, sending):
-        def send(texts):
+        def send(texts, workspace=""):
             return [{"entities": [], "blocked": text == "bad"} for text in texts]
 
         sending(send)
@@ -297,7 +297,7 @@ class TestBatching:
 
     def test_a_short_response_is_an_error_rather_than_a_mismatch(self, sending):
         with pytest.raises(ScanError, match="one result per text"):
-            sending(lambda texts: [{"entities": [], "blocked": False}])
+            sending(lambda texts, workspace="": [{"entities": [], "blocked": False}])
             scan_many(["a", "b"])
 
 

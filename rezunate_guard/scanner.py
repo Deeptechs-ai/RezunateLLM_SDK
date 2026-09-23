@@ -113,15 +113,43 @@ def drop_overlaps(entities: Iterable[Entity]) -> tuple[Entity, ...]:
     return tuple(kept)
 
 
-def stored_key() -> str:
-    """Return the key saved by `rezunate-guard login`, or "" if there is none."""
+def saved_keys() -> dict[str, str]:
+    """Read every key `rezunate-guard login` has saved.
+
+    The file holds `name = key` lines, one per workspace.
+
+    Returns:
+        The keys by workspace name.
+    """
     try:
-        return constants.credentials_path().read_text(encoding="utf-8").strip()
+        text = constants.credentials_path().read_text(encoding="utf-8")
     except OSError:
-        return ""
+        return {}
+
+    keys: dict[str, str] = {}
+    for line in text.splitlines():
+        entry = line.strip()
+        if not entry or entry.startswith("#"):
+            continue
+        name, separator, key = entry.partition("=")
+        if separator:
+            keys[name.strip()] = key.strip()
+    return keys
 
 
-def _credentials() -> tuple[str, str]:
+def stored_key(workspace: str = "") -> str:
+    """Return the saved key a workspace should scan with.
+
+    Args:
+        workspace: The workspace name.
+
+    Returns:
+        The key, or "" if there is none to use.
+    """
+    return saved_keys().get(workspace, "")
+
+
+def _credentials(workspace: str = "") -> tuple[str, str]:
     """Return the API key and base URL to scan with.
 
     The environment beats the stored key, so a project can point at another workspace
@@ -133,14 +161,18 @@ def _credentials() -> tuple[str, str]:
     Raises:
         ScanError: If no key is set anywhere.
     """
-    api_key = os.environ.get(constants.API_KEY_ENV, "").strip() or stored_key()
+    api_key = os.environ.get(constants.API_KEY_ENV, "").strip() or stored_key(workspace)
     base_url = os.environ.get(constants.BASE_URL_ENV, constants.DEFAULT_BASE_URL).rstrip("/")
     if not api_key:
-        raise ScanError(f"no API key; run `rezunate-guard login` or set {constants.API_KEY_ENV}")
+        workspace_suffix = f" for workspace {workspace!r}" if workspace else ""
+        raise ScanError(
+            f"no API key{workspace_suffix}; "
+            f"run `rezunate-guard login` or set {constants.API_KEY_ENV}"
+        )
     return api_key, base_url
 
 
-def send_batch(texts: list[str]) -> list[dict]:
+def send_batch(texts: list[str], workspace: str = "") -> list[dict]:
     """Send one request covering every text in the batch.
 
     Uses urllib rather than requests to keep the package free of dependencies. A cache
@@ -156,7 +188,7 @@ def send_batch(texts: list[str]) -> list[dict]:
         ScanError: On any network, HTTP or decoding failure, or if the reply does not
             hold one result per text.
     """
-    api_key, base_url = _credentials()
+    api_key, base_url = _credentials(workspace)
     request = Request(
         f"{base_url}{API_PATH}",
         data=json.dumps({"texts": texts}).encode("utf-8"),
@@ -211,7 +243,7 @@ def _parse_entities(payload: dict, offset: int) -> list[Entity]:
         raise ScanError(f"malformed entity in response: {exc}") from exc
 
 
-def scan_many(texts: Sequence[str]) -> tuple[ScanResult, ...]:
+def scan_many(texts: Sequence[str], workspace: str = "") -> tuple[ScanResult, ...]:
     """Scan several texts together, one result per input.
 
     Every window of every text goes into one request, so a grep with a hundred matched
@@ -245,7 +277,7 @@ def scan_many(texts: Sequence[str]) -> tuple[ScanResult, ...]:
     payloads: list[dict] = []
     for start in range(0, len(ordered), MAX_BATCH_TEXTS):
         group = ordered[start : start + MAX_BATCH_TEXTS]
-        answered = send_batch(group)
+        answered = send_batch(group, workspace)
         if not isinstance(answered, list) or len(answered) != len(group):
             raise ScanError("scan response did not carry one result per text")
         payloads.extend(answered)
@@ -265,7 +297,7 @@ def scan_many(texts: Sequence[str]) -> tuple[ScanResult, ...]:
     )
 
 
-def scan(text: str) -> ScanResult:
+def scan(text: str, workspace: str = "") -> ScanResult:
     """Scan one text.
 
     Args:
@@ -277,4 +309,4 @@ def scan(text: str) -> ScanResult:
     Raises:
         ScanError: As `scan_many`.
     """
-    return scan_many([text])[0]
+    return scan_many([text], workspace)[0]

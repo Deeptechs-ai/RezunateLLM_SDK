@@ -10,9 +10,9 @@ import sys
 from pathlib import Path
 
 from rezunate_guard import __version__, constants, private_file
-from rezunate_guard.config import CONFIG_TEMPLATE, resolve_config, scan_decision
+from rezunate_guard.config import CONFIG_TEMPLATE, resolve_config, resolve_workspace, scan_decision
 from rezunate_guard.hook import main as hook_main
-from rezunate_guard.scanner import stored_key
+from rezunate_guard.scanner import saved_keys, stored_key
 
 #: PostToolUse redacts what came back. PreToolUse refuses reads whose contents would
 #: never return as text we could redact.
@@ -157,11 +157,30 @@ def _prompt_for_key() -> str:
     return key.strip()
 
 
+def _current_workspace() -> str:
+    """Return the workspace a file in this folder would be scanned under.
+
+    Returns:
+        The workspace name, or "" when no config governs this folder.
+    """
+    return resolve_workspace(Path.cwd())
+
+
 def command_login(args: argparse.Namespace) -> int:
     """Save an API key to `~/.rezunate/credentials`, readable only by the user.
 
     Prompts for the key when it is not given as an argument.
     """
+    config = resolve_config(Path.cwd())
+    if config.source is None:
+        message = (
+            f"no {constants.CONFIG_FILENAME} here; "
+            "run `rezunate-guard init` in your project first"
+        )
+        print(_paint(message, _RED), file=sys.stderr)
+        return 1
+
+    workspace = _current_workspace()
     key = (args.key or "").strip() or _prompt_for_key()
 
     if not key:
@@ -169,14 +188,37 @@ def command_login(args: argparse.Namespace) -> int:
         print(_paint(message, _RED), file=sys.stderr)
         status = 1
     else:
-        path = constants.credentials_path()
-        private_file.write(path, f"{key}\n".encode())
+        keys = saved_keys()
+        keys[workspace] = key
+        lines = [f"{name} = {saved}" for name, saved in sorted(keys.items())]
+        private_file.write(constants.credentials_path(), ("\n".join(lines) + "\n").encode())
 
-        print(f"{_paint('key saved', _GREEN)} to {path}")
+        print(f"{_paint('key saved', _GREEN)} for workspace {workspace}")
+        _name_the_workspace(config.source, workspace)
         print("this key is not verified until the first scan; run `rezunate-guard status`")
         status = 0
 
     return status
+
+
+def _name_the_workspace(path: Path, workspace: str) -> None:
+    """Write the workspace into the project's config, so the choice outlives the folder.
+
+    Left unwritten, the name is only ever guessed from the folder, so renaming it, or a
+    colleague cloning it under another name, quietly selects a different key.
+
+    Args:
+        path: The config governing the folder `login` ran in.
+        workspace: The name the key was saved under.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+
+    if not any(line.strip().startswith("workspace:") for line in text.splitlines()):
+        path.write_text(f"workspace: {workspace}\n{text}", encoding="utf-8")
+        print(f"  added {_paint(f'workspace: {workspace}', _GREEN)} to {path.name}")
 
 
 def command_init(args: argparse.Namespace) -> int:
@@ -319,14 +361,19 @@ def _report_key() -> list[str]:
         Issues found, for the caller to summarise. Empty when the key is fine.
     """
     issues: list[str] = []
+    workspace = _current_workspace()
+    workspace_suffix = f" for workspace {workspace}" if workspace else ""
 
     if os.environ.get(constants.API_KEY_ENV, "").strip():
         print(f"  key        {_paint('set', _GREEN)} via {constants.API_KEY_ENV}")
-    elif stored_key():
-        print(f"  key        {_paint('saved', _GREEN)} in {constants.credentials_path()}")
+    elif stored_key(workspace):
+        print(f"  key        {_paint('saved', _GREEN)}{workspace_suffix}")
     else:
-        print(f"  key        {_paint('MISSING', _RED)}")
-        issues.append("No API key. Run `rezunate-guard login`. Protected files will be withheld.")
+        print(f"  key        {_paint('MISSING', _RED)}{workspace_suffix}")
+        issues.append(
+            f"No API key{workspace_suffix}. Run `rezunate-guard login`. "
+            "Protected files will be withheld."
+        )
 
     return issues
 
