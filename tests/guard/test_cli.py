@@ -211,10 +211,17 @@ class TestInit:
 
 
 class TestLogin:
+    @pytest.fixture(autouse=True)
+    def configured(self, project):
+        """A project to log in to; the tests that need none remove it."""
+        config = project / constants.CONFIG_FILENAME
+        config.write_text("scan:\n  - clients\n")
+        return config
+
     def test_saves_the_key_privately(self, home, project):
         assert cli.main(["login", "sk-test-123"]) == 0
         path = home / "rezunate" / "credentials"
-        assert path.read_text().strip() == "sk-test-123"
+        assert path.read_text().strip() == "work = sk-test-123", "saved under the folder name"
         assert path.stat().st_mode & 0o077 == 0, "credentials must not be readable by others"
 
     def test_rejects_an_empty_key(self, home, project, monkeypatch, capsys):
@@ -240,7 +247,58 @@ class TestLogin:
     def test_overwrites_a_previous_key(self, home, project):
         cli.main(["login", "old"])
         cli.main(["login", "new"])
-        assert (home / "rezunate" / "credentials").read_text().strip() == "new"
+        assert (home / "rezunate" / "credentials").read_text().strip() == "work = new"
+
+    def test_uses_the_workspace_the_config_names(self, home, project):
+        """A scan looks the key up by the config's name, so login must save it there."""
+        (project / constants.CONFIG_FILENAME).write_text("workspace: acme\nscan:\n  - clients\n")
+        assert cli.main(["login", "k"]) == 0
+        assert (home / "rezunate" / "credentials").read_text().strip() == "acme = k"
+
+    def test_from_a_subfolder_uses_the_projects_workspace(self, home, project, monkeypatch):
+        subfolder = project / "clients"
+        subfolder.mkdir()
+        monkeypatch.chdir(subfolder)
+        assert cli.main(["login", "k"]) == 0
+        assert (home / "rezunate" / "credentials").read_text().strip() == "work = k"
+        assert (
+            "workspace: work" in (project / constants.CONFIG_FILENAME).read_text()
+        ), "the name belongs in the project's config, not a new one in the subfolder"
+        assert not (subfolder / constants.CONFIG_FILENAME).exists()
+
+    def test_records_the_workspace_in_the_config(self, home, project, configured):
+        assert cli.main(["login", "k"]) == 0
+        assert configured.read_text().startswith("workspace: work\n")
+
+    def test_keeps_a_workspace_the_config_already_names(self, home, project, configured):
+        configured.write_text("workspace: acme\nscan:\n  - clients\n")
+        cli.main(["login", "k"])
+        assert configured.read_text() == "workspace: acme\nscan:\n  - clients\n"
+
+    def test_refuses_outside_a_project(self, home, project, configured, monkeypatch, capsys):
+        """A key saved where no config names a workspace would never be used."""
+        configured.unlink()
+        monkeypatch.setattr("getpass.getpass", _refuse_input)
+        assert cli.main(["login", "k"]) == 1
+        assert "rezunate-guard init" in capsys.readouterr().err
+        assert not (home / "rezunate" / "credentials").exists()
+
+    def test_refuses_before_asking_for_the_key(self, home, project, configured, monkeypatch):
+        configured.unlink()
+        monkeypatch.setattr("getpass.getpass", _refuse_input)
+        assert cli.main(["login"]) == 1
+
+    def test_a_subfolder_with_its_own_config_is_not_mistaken_for_this_one(self, home, project):
+        (project / constants.CONFIG_FILENAME).write_text("workspace: acme\n")
+        (project / "x").mkdir()
+        (project / "x" / constants.CONFIG_FILENAME).write_text("workspace: other\n")
+        assert cli.main(["login", "k"]) == 0
+        assert (home / "rezunate" / "credentials").read_text().strip() == "acme = k"
+
+    def test_there_is_no_workspace_option(self, home, project):
+        """A typed name could match no project, leaving the key saved but never used."""
+        with pytest.raises(SystemExit):
+            cli.main(["login", "k", "--workspace", "other"])
 
 
 class TestStatus:
@@ -255,14 +313,15 @@ class TestStatus:
         assert "rezunate-guard init" in out
 
     def test_reports_an_inert_config(self, home, project, capsys):
-        cli.main(["login", "k"])
         cli.main(["install"])
         cli.main(["init"])
+        cli.main(["login", "k"])
 
         assert cli.main(["status"]) == 1
         assert "nothing is protected" in capsys.readouterr().out.lower()
 
     def test_reports_a_broken_config(self, home, project, capsys):
+        cli.main(["init"])
         cli.main(["login", "k"])
         cli.main(["install"])
         (project / constants.CONFIG_FILENAME).write_text("scan: [unclosed\n")
@@ -271,10 +330,10 @@ class TestStatus:
         assert "could not be read" in capsys.readouterr().out
 
     def test_a_working_setup_reports_active(self, home, project, capsys):
-        cli.main(["login", "k"])
         cli.main(["install"])
         (project / "clients").mkdir(exist_ok=True)
         (project / constants.CONFIG_FILENAME).write_text("scan:\n  - clients\n")
+        cli.main(["login", "k"])
 
         assert cli.main(["status"]) == 0
         out = capsys.readouterr().out
