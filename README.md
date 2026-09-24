@@ -435,6 +435,12 @@ different placeholders. Placeholders come from a key that never leaves your mach
 off in your guardrail settings, a phone number in a protected file reaches the model in
 the clear. Check what is enabled before relying on this.
 
+Scanned text is remembered for 24 hours in `~/.rezunate/cache.db`, owner-readable only,
+so re-reading a file costs nothing and uses none of your quota. Editing part of a file
+re-scans only the part that changed. What is stored is the kind and position of each
+detection, never the value. Run `rezunate-guard cache --clear` after changing your
+guardrail settings, or results from the last day will still reflect the old ones.
+
 | Command | What it does |
 |---|---|
 | `rezunate-guard install` | register the hooks in Claude Code's `settings.json` |
@@ -442,6 +448,7 @@ the clear. Check what is enabled before relying on this.
 | `rezunate-guard login` | save this project's API key to `~/.rezunate/credentials`; run it inside the project, after `init` |
 | `rezunate-guard status` | report whether anything is actually being protected |
 | `rezunate-guard check <paths>` | show whether given paths would be scanned, and why |
+| `rezunate-guard cache [--clear]` | show what has been scanned before, or forget it |
 | `rezunate-guard uninstall` | remove them again, leaving other hooks alone |
 
 **Nothing is scanned unless you name it**, and each scanned file is a billable API call,
