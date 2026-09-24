@@ -9,7 +9,7 @@ from dataclasses import dataclass, replace
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from rezunate_guard import constants
+from rezunate_guard import cache, constants
 
 API_PATH = "/api/v1/guardrails/scan-batch"
 
@@ -269,23 +269,25 @@ def scan_many(texts: Sequence[str], workspace: str = "") -> tuple[ScanResult, ..
     if not windows:
         return tuple(ScanResult(entities=(), blocked=False) for _ in texts)
 
-    unique: dict[str, int] = {}
-    for _, _, window in windows:
-        unique.setdefault(window, len(unique))
+    unique_windows = list(dict.fromkeys(window for _, _, window in windows))
+    payloads = cache.lookup(workspace, unique_windows)
+    unscanned = [window for window in unique_windows if window not in payloads]
 
-    ordered = list(unique)
-    payloads: list[dict] = []
-    for start in range(0, len(ordered), MAX_BATCH_TEXTS):
-        group = ordered[start : start + MAX_BATCH_TEXTS]
+    scanned: dict[str, dict] = {}
+    for start in range(0, len(unscanned), MAX_BATCH_TEXTS):
+        group = unscanned[start : start + MAX_BATCH_TEXTS]
         answered = send_batch(group, workspace)
         if not isinstance(answered, list) or len(answered) != len(group):
             raise ScanError("scan response did not carry one result per text")
-        payloads.extend(answered)
+        scanned.update(zip(group, answered, strict=True))
+
+    cache.store(workspace, scanned)
+    payloads.update(scanned)
 
     found: list[list[Entity]] = [[] for _ in texts]
     blocked = [False] * len(texts)
     for index, offset, window in windows:
-        payload = payloads[unique[window]]
+        payload = payloads[window]
         if not isinstance(payload, dict):
             raise ScanError("response was not an object")
         blocked[index] = blocked[index] or bool(payload.get("blocked"))
