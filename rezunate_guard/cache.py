@@ -1,12 +1,3 @@
-"""Remember what a scan returned, so the same text is never paid for twice.
-
-Keyed by the text itself rather than the file it came from, because an edit changes only
-the windows it touches, and most scanned text is a tool's output rather than a file.
-
-Every failure here is answered with a miss. A cache that cannot be read costs a scan; one
-that is trusted when it should not be costs a leak.
-"""
-
 from __future__ import annotations
 
 import hashlib
