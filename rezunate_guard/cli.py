@@ -9,7 +9,7 @@ import os
 import sys
 from pathlib import Path
 
-from rezunate_guard import __version__, constants, private_file
+from rezunate_guard import __version__, cache, constants, private_file
 from rezunate_guard.config import (
     CONFIG_TEMPLATE,
     GuardConfig,
@@ -499,6 +499,18 @@ def command_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_cache(args: argparse.Namespace) -> int:
+    """Report what the cache is holding, or throw it away."""
+    if args.clear:
+        cache.clear()
+        print(f"{_paint('cache cleared', _GREEN)}")
+        return 0
+
+    entries, size = cache.summary()
+    print(f"  cache      {entries:,} answers, {size / 1024:,.0f} KB in {constants.cache_path()}")
+    return 0
+
+
 def command_hook(args: argparse.Namespace) -> int:
     """Run the hook. Claude Code calls this, not people."""
     hook_main()
@@ -541,6 +553,10 @@ def build_parser() -> argparse.ArgumentParser:
     check = subcommands.add_parser("check", help="show whether given paths would be scanned")
     check.add_argument("paths", nargs="+")
     check.set_defaults(func=command_check)
+
+    cache_command = subcommands.add_parser("cache", help="show or clear saved scan results")
+    cache_command.add_argument("--clear", action="store_true", help="forget every saved result")
+    cache_command.set_defaults(func=command_cache)
 
     hook = subcommands.add_parser("hook", help=argparse.SUPPRESS)
     hook.set_defaults(func=command_hook)
