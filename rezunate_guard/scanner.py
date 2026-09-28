@@ -129,10 +129,8 @@ def saved_keys() -> dict[str, str]:
     keys: dict[str, str] = {}
     for line in text.splitlines():
         entry = line.strip()
-        if not entry or entry.startswith("#"):
-            continue
         name, separator, key = entry.partition("=")
-        if separator:
+        if separator and not entry.startswith("#"):
             keys[name.strip()] = key.strip()
     return keys
 
