@@ -402,8 +402,8 @@ works from then on.
 ```bash
 cd your-project
 rezunate-guard install     # register the hooks with Claude Code
-rezunate-guard login       # save your Rezunate API key
 rezunate-guard init        # write .rezunate-guard.yaml
+rezunate-guard login       # save your Rezunate API key for this project
 rezunate-guard status      # confirm protection is actually on
 ```
 
@@ -438,11 +438,11 @@ the clear. Check what is enabled before relying on this.
 | Command | What it does |
 |---|---|
 | `rezunate-guard install` | register the hooks in Claude Code's `settings.json` |
-| `rezunate-guard login` | save your API key to `~/.rezunate/credentials` |
 | `rezunate-guard init` | write a `.rezunate-guard.yaml` template here |
-| `rezunate-guard uninstall` | remove them again, leaving other hooks alone |
+| `rezunate-guard login` | save this project's API key to `~/.rezunate/credentials`; run it inside the project, after `init` |
 | `rezunate-guard status` | report whether anything is actually being protected |
 | `rezunate-guard check <paths>` | show whether given paths would be scanned, and why |
+| `rezunate-guard uninstall` | remove them again, leaving other hooks alone |
 
 **Nothing is scanned unless you name it**, and each scanned file is a billable API call,
 so list only what holds personal data. If the config cannot be read — a typo in the YAML,

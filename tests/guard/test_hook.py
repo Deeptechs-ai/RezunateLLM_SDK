@@ -62,7 +62,7 @@ class TestPassThrough:
         assert hook.respond(payload) is None
 
     def test_unprotected_file_never_calls_the_redactor(self, project, monkeypatch):
-        def explode(texts):
+        def explode(texts, workspace=""):
             raise AssertionError("redactor ran on an unprotected file")
 
         monkeypatch.setattr(hook, "redact_all", explode)
@@ -93,40 +93,50 @@ class TestEveryReadPath:
         return payload
 
     def test_cat_on_a_protected_file_is_redacted(self, project, monkeypatch):
-        monkeypatch.setattr(hook, "redact_all", lambda texts: dict.fromkeys(texts, "[NAME]"))
+        monkeypatch.setattr(
+            hook, "redact_all", lambda texts, workspace="": dict.fromkeys(texts, "[NAME]")
+        )
         payload = self.bash_payload(f"cat {project / 'clients/acme.md'}", "Ali Hassan")
         updated = hook.respond(payload)["hookSpecificOutput"]["updatedToolOutput"]
         assert updated["stdout"] == "[NAME]"
 
     def test_a_relative_path_resolves_against_the_session_cwd(self, project, monkeypatch):
-        monkeypatch.setattr(hook, "redact_all", lambda texts: dict.fromkeys(texts, "[NAME]"))
+        monkeypatch.setattr(
+            hook, "redact_all", lambda texts, workspace="": dict.fromkeys(texts, "[NAME]")
+        )
         payload = self.bash_payload("cat clients/acme.md", "Ali Hassan", cwd=str(project))
         updated = hook.respond(payload)["hookSpecificOutput"]["updatedToolOutput"]
         assert updated["stdout"] == "[NAME]"
 
     def test_bash_shape_survives_intact(self, project, monkeypatch):
         """A reply that fails Bash's schema is discarded, and the raw stdout stands."""
-        monkeypatch.setattr(hook, "redact_all", lambda texts: dict.fromkeys(texts, "[NAME]"))
+        monkeypatch.setattr(
+            hook, "redact_all", lambda texts, workspace="": dict.fromkeys(texts, "[NAME]")
+        )
         payload = self.bash_payload(f"cat {project / 'clients/acme.md'}", "Ali Hassan")
         updated = hook.respond(payload)["hookSpecificOutput"]["updatedToolOutput"]
         assert set(updated) == {"stdout", "stderr", "interrupted", "isImage"}
         assert updated["interrupted"] is False
 
     def test_stderr_is_redacted_too(self, project, monkeypatch):
-        monkeypatch.setattr(hook, "redact_all", lambda texts: dict.fromkeys(texts, "[NAME]"))
+        monkeypatch.setattr(
+            hook, "redact_all", lambda texts, workspace="": dict.fromkeys(texts, "[NAME]")
+        )
         payload = self.bash_payload(f"grep x {project / 'clients/acme.md'}", "")
         payload["tool_response"]["stderr"] = "Ali Hassan"
         updated = hook.respond(payload)["hookSpecificOutput"]["updatedToolOutput"]
         assert updated["stderr"] == "[NAME]"
 
     def test_a_glob_protects_the_directory_it_names(self, project, monkeypatch):
-        monkeypatch.setattr(hook, "redact_all", lambda texts: dict.fromkeys(texts, "[NAME]"))
+        monkeypatch.setattr(
+            hook, "redact_all", lambda texts, workspace="": dict.fromkeys(texts, "[NAME]")
+        )
         payload = self.bash_payload(f"head {project / 'clients'}/*.md", "Ali Hassan")
         updated = hook.respond(payload)["hookSpecificOutput"]["updatedToolOutput"]
         assert updated["stdout"] == "[NAME]"
 
     def test_a_command_touching_nothing_protected_is_left_alone(self, project, monkeypatch):
-        def explode(texts):
+        def explode(texts, workspace=""):
             raise AssertionError("redactor ran on an unprotected command")
 
         monkeypatch.setattr(hook, "redact_all", explode)
@@ -134,7 +144,9 @@ class TestEveryReadPath:
 
     def test_a_bare_string_response_is_redacted(self, project, monkeypatch):
         """Some tools answer with a string rather than an object."""
-        monkeypatch.setattr(hook, "redact_all", lambda texts: dict.fromkeys(texts, "[NAME]"))
+        monkeypatch.setattr(
+            hook, "redact_all", lambda texts, workspace="": dict.fromkeys(texts, "[NAME]")
+        )
         payload = {
             "hook_event_name": "PostToolUse",
             "tool_name": "mcp__files__read",
@@ -146,7 +158,9 @@ class TestEveryReadPath:
 
     def test_nested_shapes_are_reached(self, project, monkeypatch):
         """An MCP server can nest content arbitrarily. We don't know its schema."""
-        monkeypatch.setattr(hook, "redact_all", lambda texts: dict.fromkeys(texts, "[NAME]"))
+        monkeypatch.setattr(
+            hook, "redact_all", lambda texts, workspace="": dict.fromkeys(texts, "[NAME]")
+        )
         payload = {
             "hook_event_name": "PostToolUse",
             "tool_name": "mcp__files__read",
@@ -160,7 +174,9 @@ class TestEveryReadPath:
     def test_a_tag_key_holding_prose_is_still_redacted(self, project, monkeypatch):
         """`type` is skipped as a schema discriminator. A sentence under it is not one,
         and skipping it there would hand the model whatever it holds."""
-        monkeypatch.setattr(hook, "redact_all", lambda texts: dict.fromkeys(texts, "[NAME]"))
+        monkeypatch.setattr(
+            hook, "redact_all", lambda texts, workspace="": dict.fromkeys(texts, "[NAME]")
+        )
         payload = {
             "hook_event_name": "PostToolUse",
             "tool_name": "mcp__x__read",
@@ -173,7 +189,9 @@ class TestEveryReadPath:
     def test_a_real_discriminator_survives_at_any_depth(self, project, monkeypatch):
         """Rewriting one fails schema validation, which sends the whole unredacted
         response through — a worse leak than the tag could ever be."""
-        monkeypatch.setattr(hook, "redact_all", lambda texts: dict.fromkeys(texts, "[NAME]"))
+        monkeypatch.setattr(
+            hook, "redact_all", lambda texts, workspace="": dict.fromkeys(texts, "[NAME]")
+        )
         payload = {
             "hook_event_name": "PostToolUse",
             "tool_name": "mcp__x__read",
@@ -285,7 +303,9 @@ class TestContentThatArrivesOutsideTheResult:
 
     def test_a_refusal_names_the_redacted_copy(self, project, monkeypatch):
         """A refusal that only says no teaches the model the file is unreachable."""
-        monkeypatch.setattr(hook, "redact_all", lambda texts: dict.fromkeys(texts, "[NAME]"))
+        monkeypatch.setattr(
+            hook, "redact_all", lambda texts, workspace="": dict.fromkeys(texts, "[NAME]")
+        )
         pdf = project / "clients/resume.pdf"
         pdf.write_bytes(b"%PDF-1.7\n\x00\x01binary junk")
         monkeypatch.setattr(hook.extract, "can_extract", lambda path: True)
@@ -303,7 +323,7 @@ class TestContentThatArrivesOutsideTheResult:
     def test_a_scan_failure_is_not_blamed_on_the_file(self, project, monkeypatch):
         """The file is fine; saying otherwise sends the model off editing the config."""
 
-        def unreachable(texts):
+        def unreachable(texts, workspace=""):
             raise ScanError("could not reach http://127.0.0.1:9")
 
         monkeypatch.setattr(hook, "redact_all", unreachable)
@@ -447,27 +467,33 @@ class TestContentThatArrivesOutsideTheResult:
 class TestRedaction:
     def test_protected_content_is_replaced(self, project, monkeypatch):
         monkeypatch.setattr(
-            hook, "redact_all", lambda texts: dict.fromkeys(texts, "[NAME], [PHONE]")
+            hook, "redact_all", lambda texts, workspace="": dict.fromkeys(texts, "[NAME], [PHONE]")
         )
         hook_output = hook.respond(read_payload(project / "clients/acme.md", "Ali Hassan, +971"))
         assert updated_file(hook_output)["content"] == "[NAME], [PHONE]"
 
     def test_reply_names_the_right_event(self, project, monkeypatch):
-        monkeypatch.setattr(hook, "redact_all", lambda texts: dict.fromkeys(texts, "clean"))
+        monkeypatch.setattr(
+            hook, "redact_all", lambda texts, workspace="": dict.fromkeys(texts, "clean")
+        )
         hook_output = hook.respond(read_payload(project / "clients/acme.md", "dirty"))
         assert hook_output["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
 
     def test_surrounding_fields_survive_untouched(self, project, monkeypatch):
         """Claude Code checks our reply against Read's schema; drop a field and it
         discards the whole thing and uses the original — unredacted — output."""
-        monkeypatch.setattr(hook, "redact_all", lambda texts: dict.fromkeys(texts, "clean"))
+        monkeypatch.setattr(
+            hook, "redact_all", lambda texts, workspace="": dict.fromkeys(texts, "clean")
+        )
         payload = read_payload(project / "clients/acme.md", "dirty")
         file = updated_file(hook.respond(payload))
         assert file["filePath"] == str(project / "clients/acme.md")
         assert file["numLines"] == 1
 
     def test_original_payload_is_not_mutated(self, project, monkeypatch):
-        monkeypatch.setattr(hook, "redact_all", lambda texts: dict.fromkeys(texts, "clean"))
+        monkeypatch.setattr(
+            hook, "redact_all", lambda texts, workspace="": dict.fromkeys(texts, "clean")
+        )
         payload = read_payload(project / "clients/acme.md", "dirty")
         hook.respond(payload)
         assert payload["tool_response"]["file"]["content"] == "dirty"
@@ -477,7 +503,7 @@ class TestFailClosed:
     """When we can't redact, the content must not go through."""
 
     def test_redactor_failure_withholds_content(self, project, monkeypatch):
-        def boom(texts):
+        def boom(texts, workspace=""):
             raise RuntimeError("API unreachable")
 
         monkeypatch.setattr(hook, "redact_all", boom)
@@ -504,7 +530,7 @@ class TestFailClosed:
         """Our own errors are safe to show. A stray exception might carry file content
         in its message, so only the type gets reported."""
 
-        def boom(texts):
+        def boom(texts, workspace=""):
             raise RuntimeError(f"failed while handling: {texts}")
 
         monkeypatch.setattr(hook, "redact_all", boom)
@@ -518,7 +544,7 @@ class TestFailClosed:
         This one comes back from the transport the way the real thing does."""
         monkeypatch.setattr(
             "rezunate_guard.scanner.send_batch",
-            lambda texts: [{"entities": [], "blocked": True} for _ in texts],
+            lambda texts, workspace="": [{"entities": [], "blocked": True} for _ in texts],
         )
         payload = read_payload(project / "clients/acme.md", "Ali Hassan")
         with pytest.raises(hook.Blocked):
@@ -530,7 +556,7 @@ class TestFailClosed:
     def test_blocked_content_is_withheld(self, project, monkeypatch):
         """A workspace guardrail set to block, not redact, must stop the read."""
 
-        def blocked(texts):
+        def blocked(texts, workspace=""):
             raise hook.Blocked("guardrail is set to block")
 
         monkeypatch.setattr(hook, "redact_all", blocked)
@@ -614,7 +640,9 @@ def run_hook(payload: dict, redactor_raises: bool = False, secret: str = "boom")
     """
     source = "import sys; from rezunate_guard import hook\n"
     if redactor_raises:
-        source += f"hook.redact_all = lambda ts: (_ for _ in ()).throw(RuntimeError({secret!r}))\n"
+        source += (
+            f"hook.redact_all = lambda ts, ws='': (_ for _ in ()).throw(RuntimeError({secret!r}))\n"
+        )
     source += "hook.main()\n"
 
     result = subprocess.run(
@@ -652,7 +680,7 @@ class TestEndToEnd:
 
         monkeypatch.setattr(
             "rezunate_guard.scanner.send_batch",
-            lambda texts: [fake_api(text) for text in texts],
+            lambda texts, workspace="": [fake_api(text) for text in texts],
         )
 
         hook_output = hook.respond(read_payload(project / "clients/acme.md", text))
@@ -669,7 +697,7 @@ class TestEndToEnd:
     def test_a_clean_protected_file_is_unchanged(self, project, monkeypatch):
         monkeypatch.setattr(
             "rezunate_guard.scanner.send_batch",
-            lambda texts: [{"entities": [], "blocked": False} for _ in texts],
+            lambda texts, workspace="": [{"entities": [], "blocked": False} for _ in texts],
         )
         text = "Meeting notes: ship the thing on Friday."
         hook_output = hook.respond(read_payload(project / "clients/acme.md", text))
@@ -698,7 +726,7 @@ class TestEndToEnd:
 
         monkeypatch.setattr(
             "rezunate_guard.scanner.send_batch",
-            lambda texts: [fake_api(text) for text in texts],
+            lambda texts, workspace="": [fake_api(text) for text in texts],
         )
 
         first = updated_file(
@@ -750,7 +778,9 @@ class TestServingARedactedCopy:
     def offline(self, monkeypatch):
         """Redaction stands in for the API, so no test here touches the network."""
         monkeypatch.setattr(
-            hook, "redact_all", lambda texts: {t: t.replace("Ali Hassan", "[NAME]") for t in texts}
+            hook,
+            "redact_all",
+            lambda texts, workspace="": {t: t.replace("Ali Hassan", "[NAME]") for t in texts},
         )
 
     def redirect(self, hook_output: dict) -> dict:
@@ -810,7 +840,7 @@ class TestServingARedactedCopy:
         """The copy is only safe if it was redacted. Serving unredacted text here would
         be worse than refusing, since it would look like the guard had done its job."""
 
-        def explode(texts):
+        def explode(texts, workspace=""):
             raise ScanError("no API key")
 
         monkeypatch.setattr(hook, "redact_all", explode)
@@ -818,7 +848,7 @@ class TestServingARedactedCopy:
         assert hook_output["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     def test_blocked_content_denies(self, project, make_docx, monkeypatch):
-        def blocked(texts):
+        def blocked(texts, workspace=""):
             raise hook.Blocked("the workspace guardrail is set to block this content")
 
         monkeypatch.setattr(hook, "redact_all", blocked)
@@ -856,7 +886,7 @@ class TestServingARedactedCopy:
         assert hook.respond(self.pre_payload(served)) is None
 
     def test_a_problem_is_written_to_the_log(self, project, make_docx, monkeypatch):
-        def explode(texts):
+        def explode(texts, workspace=""):
             raise ScanError("no API key")
 
         monkeypatch.setattr(hook, "redact_all", explode)

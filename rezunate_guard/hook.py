@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from rezunate_guard import extract, log, redacted_copy
-from rezunate_guard.config import should_scan
+from rezunate_guard.config import resolve_workspace, should_scan
 from rezunate_guard.extract import ExtractionError
 from rezunate_guard.masking import MaskingError, mask, placeholder_key
 from rezunate_guard.scanner import ScanError, scan_many
@@ -88,7 +88,7 @@ class GivenFile(NamedTuple):
     path: str
 
 
-def redact_all(texts: list[str]) -> dict[str, str]:
+def redact_all(texts: list[str], workspace: str = "") -> dict[str, str]:
     """Redact many strings in one request.
 
     Scanning together is the point: a tool result is many short strings, and one request
@@ -97,6 +97,7 @@ def redact_all(texts: list[str]) -> dict[str, str]:
 
     Args:
         texts: Strings to redact.
+        workspace: Whose saved key to scan with, from the file the strings came from.
 
     Returns:
         Each unique string mapped to its redacted form.
@@ -106,7 +107,7 @@ def redact_all(texts: list[str]) -> dict[str, str]:
         Blocked: If the workspace guardrail blocks any of it.
     """
     unique = list(dict.fromkeys(texts))
-    results = scan_many(unique)
+    results = scan_many(unique, workspace)
     if any(result.blocked for result in results):
         raise Blocked("the workspace guardrail is set to block this content")
 
@@ -118,7 +119,7 @@ def redact_all(texts: list[str]) -> dict[str, str]:
     }
 
 
-def redact_response(response: Any) -> Any:
+def redact_response(response: Any, workspace: str = "") -> Any:
     """Copy a tool response with every string in it redacted.
 
     Runs the same walker twice, so what counts as content is written once: one pass
@@ -126,6 +127,7 @@ def redact_response(response: Any) -> Any:
 
     Args:
         response: The tool response, of any shape.
+        workspace: Whose saved key to scan with.
 
     Returns:
         A copy with each string redacted.
@@ -135,7 +137,7 @@ def redact_response(response: Any) -> Any:
         Blocked: If the workspace guardrail blocks the content.
     """
     pending = _content_strings(response)
-    redacted = redact_all(pending) if pending else {}
+    redacted = redact_all(pending, workspace) if pending else {}
 
     return _rewrite_strings(response, lambda text: redacted[text])
 
@@ -209,8 +211,8 @@ def _tool_path(payload: dict[str, Any]) -> str:
     tool_input = payload.get("tool_input")
     fields = tool_input if isinstance(tool_input, dict) else {}
 
-    named = [fields.get(key) for key in PATH_KEYS]
-    return next((path for path in named if isinstance(path, str) and path), "")
+    candidates = [fields.get(key) for key in PATH_KEYS]
+    return next((path for path in candidates if isinstance(path, str) and path), "")
 
 
 def _given_file(payload: dict[str, Any]) -> GivenFile:
@@ -358,7 +360,7 @@ def _redacted_copy_of(path: str) -> RedactedCopy:
     if extract.can_extract(path):
         try:
             text = extract.extract_text(path)
-            copy_path = redacted_copy.write(path, redact_all([text])[text])
+            copy_path = redacted_copy.write(path, redact_all([text], resolve_workspace(path))[text])
             copy = RedactedCopy(copy_path)
         except (ExtractionError, ScanError, Blocked, MaskingError, OSError) as exc:
             log.problem(path, f"could not build a redacted copy: {exc}")
@@ -608,16 +610,16 @@ def respond(payload: dict[str, Any]) -> dict[str, Any] | None:
     response = payload.get("tool_response")
 
     # Short-circuits, so a PreToolUse call never pays for expanding the paths it touched.
-    has_protected_output = (
-        event == "PostToolUse"
-        and response is not None
-        and any(should_scan(path) for path in _implicated_paths(payload))
-    )
+    protected = [path for path in _implicated_paths(payload) if should_scan(path)]
+    has_protected_output = event == "PostToolUse" and response is not None and bool(protected)
+    workspaces = {resolve_workspace(path) for path in protected}
 
     if event == "PreToolUse":
         hook_output = _before_tool(payload)
     elif not has_protected_output:
         hook_output = None
+    elif len(workspaces) > 1:
+        hook_output = _withhold(payload, "this result mixes files from two workspaces")
     elif _is_image(payload):
         hook_output = _withhold(payload, "images cannot be redacted")
     elif _content_is_elsewhere(response):
@@ -625,7 +627,7 @@ def respond(payload: dict[str, Any]) -> dict[str, Any] | None:
         # that is left, since the content reaches the model by a route we never see.
         hook_output = _withhold(payload, "this result holds content we cannot rewrite")
     else:
-        hook_output = _replace_output(redact_response(response))
+        hook_output = _replace_output(redact_response(response, workspaces.pop()))
 
     return hook_output
 
