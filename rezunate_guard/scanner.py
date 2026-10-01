@@ -262,9 +262,9 @@ def scan_many(texts: Sequence[str], workspace: str = "") -> tuple[ScanResult, ..
     # Windows are cut here as well as in the service, because truncation is silent.
     windows: list[tuple[int, int, str]] = []
     for index, text in enumerate(texts):
-        if not text.strip():
-            continue
-        windows.extend((index, offset, window) for offset, window in chunks(text))
+        if text.strip():
+            for offset, window in chunks(text):
+                windows.append((index, offset, window))
 
     if not windows:
         return tuple(ScanResult(entities=(), blocked=False) for _ in texts)
