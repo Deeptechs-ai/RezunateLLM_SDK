@@ -5,6 +5,7 @@ import json
 import os
 import sqlite3
 import time
+from contextlib import closing, suppress
 
 from rezunate_guard import constants
 
@@ -61,22 +62,21 @@ def lookup(workspace: str, texts: list[str]) -> dict[str, dict]:
         The results still within the retention window, by text. Anything else is a miss,
         including an answer that has gone stale, since a hit is never refreshed by use.
     """
-    connection = _connect()
-    if connection is None:
-        return {}
-
     keys = {_key(workspace, text): text for text in texts}
-    try:
-        rows = connection.execute(
-            f"SELECT key, result FROM entries "
-            f"WHERE stored_at >= ? AND key IN ({','.join('?' * len(keys))})",
-            [time.time() - TTL_SECONDS, *keys],
-        ).fetchall()
-        return {keys[key]: json.loads(result) for key, result in rows}
-    except (sqlite3.Error, ValueError):
-        return {}
-    finally:
-        connection.close()
+    cached_results: dict[str, dict] = {}
+
+    connection = _connect()
+    if connection is not None:
+        # A cache that cannot be read is a miss, never an error.
+        with closing(connection), suppress(sqlite3.Error, ValueError):
+            rows = connection.execute(
+                f"SELECT key, result FROM entries "
+                f"WHERE stored_at >= ? AND key IN ({','.join('?' * len(keys))})",
+                [time.time() - TTL_SECONDS, *keys],
+            ).fetchall()
+            cached_results = {keys[key]: json.loads(result) for key, result in rows}
+
+    return cached_results
 
 
 def store(workspace: str, results: dict[str, dict]) -> None:
