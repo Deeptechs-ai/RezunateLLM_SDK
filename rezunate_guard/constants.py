@@ -43,6 +43,11 @@ def placeholder_key_path() -> Path:
     return rezunate_home() / "placeholder.key"
 
 
+def cache_path() -> Path:
+    """Return the database of results already scanned."""
+    return rezunate_home() / "cache.db"
+
+
 def log_path() -> Path:
     """Return the file holding problems worth telling the user about."""
     return rezunate_home() / "guard.log"
