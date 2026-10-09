@@ -114,17 +114,16 @@ def store(workspace: str, results: dict[str, dict]) -> None:
 
 def summary() -> tuple[int, int]:
     """Return how many answers are held, and the bytes they take."""
-    path = constants.cache_path()
+    entries, size = 0, 0
+
     connection = _connect()
-    if connection is None:
-        return 0, 0
-    try:
-        entries = connection.execute("SELECT count(*) FROM entries").fetchone()[0]
-        return entries, path.stat().st_size
-    except (sqlite3.Error, OSError):
-        return 0, 0
-    finally:
-        connection.close()
+    if connection is not None:
+        # A cache that cannot be read holds nothing we can count.
+        with closing(connection), suppress(sqlite3.Error, OSError):
+            count = connection.execute("SELECT count(*) FROM entries").fetchone()[0]
+            entries, size = count, constants.cache_path().stat().st_size
+
+    return entries, size
 
 
 def clear() -> None:

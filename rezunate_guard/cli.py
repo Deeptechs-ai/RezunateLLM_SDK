@@ -504,10 +504,11 @@ def command_cache(args: argparse.Namespace) -> int:
     if args.clear:
         cache.clear()
         print(f"{_paint('cache cleared', _GREEN)}")
-        return 0
-
-    entries, size = cache.summary()
-    print(f"  cache      {entries:,} answers, {size / 1024:,.0f} KB in {constants.cache_path()}")
+    else:
+        entries, size = cache.summary()
+        print(
+            f"  cache      {entries:,} answers, {size / 1024:,.0f} KB in {constants.cache_path()}"
+        )
     return 0
 
 
