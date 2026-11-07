@@ -13,6 +13,7 @@ BASE_URL_ENV = "REZUNATE_LLM_BASE_URL"
 DEFAULT_BASE_URL = "https://rezunatellm.com"
 API_KEYS_PATH = "/dashboard/apikeys"
 CLAUDE_CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR"
+CODEX_HOME_ENV = "CODEX_HOME"
 
 
 def api_keys_url() -> str:

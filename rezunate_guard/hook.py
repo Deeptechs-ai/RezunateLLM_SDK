@@ -644,12 +644,38 @@ def _reason_for(exc: BaseException) -> str:
     return str(exc) if isinstance(exc, EXPECTED_ERRORS) else fallback_error_message
 
 
-def main() -> None:
+def _as_codex_output(hook_output: dict[str, Any]) -> dict[str, Any]:
+    """Translate a reply into the form Codex accepts.
+
+    Codex cannot rewrite a tool's output in place. A PostToolUse `block` replaces the
+    result with its reason instead, so the rewritten output travels as that reason.
+    PreToolUse replies already share Claude Code's shape and pass through unchanged.
+
+    Args:
+        hook_output: A reply built for Claude Code.
+
+    Returns:
+        The equivalent Codex reply.
+    """
+    specific = hook_output.get("hookSpecificOutput", {})
+    if specific.get("hookEventName") != "PostToolUse":
+        return hook_output
+
+    updated = specific["updatedToolOutput"]
+    reason = updated if isinstance(updated, str) else json.dumps(updated)
+    return {"decision": "block", "reason": reason}
+
+
+def main(agent: str = "claude") -> None:
     """Read a payload from stdin, print the reply, and always exit 0.
 
     Only exit 0 means "use what I printed". Any other code counts as a non-blocking
     error and the original tool output stands, so an unhandled exception here is a leak
     rather than a crash. That is why everything is caught.
+
+    Args:
+        agent: The coding agent running the hook, "claude" or "codex", which decides
+            the shape of the reply.
     """
     hook_output = None
     payload: dict[str, Any] = {}
@@ -667,6 +693,8 @@ def main() -> None:
             hook_output = _withhold(payload, _reason_for(exc))
 
     if hook_output is not None:
+        if agent == "codex":
+            hook_output = _as_codex_output(hook_output)
         sys.stdout.write(json.dumps(hook_output))
     sys.exit(0)
 

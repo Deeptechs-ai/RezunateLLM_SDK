@@ -30,6 +30,9 @@ HOOK_MATCHER = "*"
 #: Identifies Rezunate's entries, so uninstall never disturbs hooks someone else registered.
 HOOK_MARKERS = ("rezunate_guard", "rezunate-guard")
 
+#: The coding agents the hook can be registered with, and how to name each to the user.
+AGENTS = {"claude": "Claude Code", "codex": "Codex"}
+
 
 #: ANSI codes for the words `status` is really answering with.
 _RED = "31"
@@ -57,32 +60,42 @@ def _paint(text: str, code: str) -> str:
     return f"\033[{code}m{text}\033[0m" if change_colour else text
 
 
-def hook_command() -> str:
+def hook_command(agent: str = "claude") -> str:
     """Return the command to register, bound to this interpreter.
 
     Not the bare name. Installed as a library the script lands in a venv's `bin`, which
-    Claude Code may not have on PATH, and a hook it cannot launch leaves the file
+    the agent may not have on PATH, and a hook it cannot launch leaves the file
     unredacted.
+
+    Args:
+        agent: The coding agent the command is registered with.
     """
-    return f"{sys.executable} -m rezunate_guard hook"
+    command = f"{sys.executable} -m rezunate_guard hook"
+    return f"{command} --agent {agent}" if agent != "claude" else command
 
 
-def settings_path(scope: str) -> Path:
-    """Return the Claude Code settings file for a scope.
+def settings_path(scope: str, agent: str = "claude") -> Path:
+    """Return the file an agent reads its hooks from, for a scope.
 
     Args:
         scope: "user" applies everywhere; "project" only to the working directory.
+        agent: "claude" for Claude Code's `settings.json`, "codex" for Codex's `hooks.json`.
 
     Returns:
-        The settings file for that scope.
+        The hook settings file for that agent and scope.
     """
-    if scope == "project":
-        directory = Path.cwd() / ".claude"
+    if agent == "codex":
+        home_env, dirname, filename = constants.CODEX_HOME_ENV, ".codex", "hooks.json"
     else:
-        configured = os.environ.get(constants.CLAUDE_CONFIG_DIR_ENV)
-        directory = Path(configured) if configured else Path.home() / ".claude"
+        home_env, dirname, filename = constants.CLAUDE_CONFIG_DIR_ENV, ".claude", "settings.json"
 
-    return directory / "settings.json"
+    if scope == "project":
+        directory = Path.cwd() / dirname
+    else:
+        configured = os.environ.get(home_env)
+        directory = Path(configured) if configured else Path.home() / dirname
+
+    return directory / filename
 
 
 def _read_json(path: Path) -> dict:
@@ -282,9 +295,31 @@ def _disallow_redacted_copies(settings: dict) -> bool:
     return removed
 
 
-def command_install(args: argparse.Namespace) -> int:
-    """Register both hook events in `settings.json`, adding whichever is missing."""
-    path = settings_path(args.scope)
+def _target_agents(agent: str | None) -> list[str]:
+    """Return the agents an install applies to.
+
+    Args:
+        agent: The agent the user named, or None to cover every agent on this machine.
+
+    Returns:
+        The named agent alone; otherwise each agent whose user-level settings folder
+        exists, falling back to Claude Code when neither does.
+    """
+    detected = [name for name in AGENTS if settings_path("user", name).parent.is_dir()]
+    return [agent] if agent else detected or ["claude"]
+
+
+def _install(scope: str, agent: str) -> int:
+    """Register both hook events with one agent, adding whichever is missing.
+
+    Args:
+        scope: "user" or "project".
+        agent: The agent to register with.
+
+    Returns:
+        The exit status: 0 on success, 1 if the settings file cannot be safely edited.
+    """
+    path = settings_path(scope, agent)
     settings = _read_json(path)
 
     hooks = settings.setdefault("hooks", {})
@@ -301,7 +336,7 @@ def command_install(args: argparse.Namespace) -> int:
         for event in HOOK_EVENTS:
             entries = hooks.setdefault(event, [])
             if not any(_is_rezunate_hook_entry(entry) for entry in entries):
-                command = {"type": "command", "command": hook_command()}
+                command = {"type": "command", "command": hook_command(agent)}
                 entries.append({"matcher": HOOK_MATCHER, "hooks": [command]})
                 changes.append(f"{event}: registered for {HOOK_MATCHER!r}")
 
@@ -316,15 +351,28 @@ def command_install(args: argparse.Namespace) -> int:
         for change in changes:
             print(f"  {change}")
         print(f"{_paint('hook installed', _GREEN)} in {path}")
-        print("Restart Claude Code, or start a new session, for it to take effect.")
+        print(f"Restart {AGENTS[agent]}, or start a new session, for it to take effect.")
+        if agent == "codex":
+            print("Codex skips new hooks until they are trusted; review them with /hooks.")
         status = 0
 
     return status
 
 
-def command_uninstall(args: argparse.Namespace) -> int:
-    """Remove Rezunate's hook entries from `settings.json`, leaving any others untouched."""
-    path = settings_path(args.scope)
+def command_install(args: argparse.Namespace) -> int:
+    """Register the hook with the named agent, or with every agent found."""
+    statuses = [_install(args.scope, agent) for agent in _target_agents(args.agent)]
+    return max(statuses)
+
+
+def _uninstall(scope: str, agent: str) -> None:
+    """Remove Rezunate's hook entries from one agent, leaving any others untouched.
+
+    Args:
+        scope: "user" or "project".
+        agent: The agent to remove the hook from.
+    """
+    path = settings_path(scope, agent)
     settings = _read_json(path)
 
     raw = settings.get("hooks")
@@ -355,10 +403,15 @@ def command_uninstall(args: argparse.Namespace) -> int:
         if hook_removed:
             warning = _paint("Files are no longer redacted.", _YELLOW)
             print(f"{_paint('hook removed', _YELLOW)} from {path}")
-            print(f"{warning} Restart Claude Code to apply.")
+            print(f"{warning} Restart {AGENTS[agent]} to apply.")
         else:
             print(f"redacted-copies directory removed from {path}")
 
+
+def command_uninstall(args: argparse.Namespace) -> int:
+    """Remove the hook from the named agent, or from every agent."""
+    for agent in [args.agent] if args.agent else AGENTS:
+        _uninstall(args.scope, agent)
     return 0
 
 
@@ -394,7 +447,8 @@ def _report_hook() -> list[str]:
     """
     installed = {
         path: events
-        for path in (settings_path("user"), settings_path("project"))
+        for agent in AGENTS
+        for path in (settings_path("user", agent), settings_path("project", agent))
         if (events := _installed_events(path))
     }
 
@@ -513,16 +567,21 @@ def command_cache(args: argparse.Namespace) -> int:
 
 
 def command_hook(args: argparse.Namespace) -> int:
-    """Run the hook. Claude Code calls this, not people."""
-    hook_main()
+    """Run the hook. Claude Code or Codex calls this, not people."""
+    hook_main(args.agent)
     return 0
+
+
+def _add_agent_option(parser: argparse.ArgumentParser, help_text: str, default: str | None) -> None:
+    """Let a subcommand choose which coding agent it applies to."""
+    parser.add_argument("--agent", choices=tuple(AGENTS), default=default, help=help_text)
 
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for every subcommand."""
     parser = argparse.ArgumentParser(
         prog="rezunate-guard",
-        description="Redact PII from files before Claude Code sends them to the model.",
+        description="Redact PII from files before Claude Code or Codex sends them to the model.",
     )
     parser.add_argument("--version", action="version", version=__version__)
     subcommands = parser.add_subparsers(dest="command", required=True)
@@ -535,17 +594,19 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--force", action="store_true", help="overwrite an existing config")
     init.set_defaults(func=command_init)
 
-    install = subcommands.add_parser("install", help="register the hook with Claude Code")
+    install = subcommands.add_parser("install", help="register the hook with Claude Code or Codex")
     install.add_argument(
         "--scope",
         choices=("user", "project"),
         default="user",
         help="user (default) applies everywhere; project applies to this directory only",
     )
+    _add_agent_option(install, "claude or codex only; every agent found if omitted", None)
     install.set_defaults(func=command_install)
 
     uninstall = subcommands.add_parser("uninstall", help="unregister the hook")
     uninstall.add_argument("--scope", choices=("user", "project"), default="user")
+    _add_agent_option(uninstall, "claude or codex only; every agent if omitted", None)
     uninstall.set_defaults(func=command_uninstall)
 
     status = subcommands.add_parser("status", help="check whether protection is actually on")
@@ -560,6 +621,7 @@ def build_parser() -> argparse.ArgumentParser:
     cache_command.set_defaults(func=command_cache)
 
     hook = subcommands.add_parser("hook", help=argparse.SUPPRESS)
+    _add_agent_option(hook, argparse.SUPPRESS, "claude")
     hook.set_defaults(func=command_hook)
 
     return parser
