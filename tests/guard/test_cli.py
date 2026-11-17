@@ -15,10 +15,11 @@ from rezunate_guard import __version__, cli, constants
 
 @pytest.fixture
 def home(tmp_path, monkeypatch):
-    """A fake home for both `~/.claude` and `~/.rezunate`."""
+    """A fake home for `~/.claude`, `~/.codex` and `~/.rezunate`."""
     claude = tmp_path / "claude"
     claude.mkdir()
     monkeypatch.setenv(constants.CLAUDE_CONFIG_DIR_ENV, str(claude))
+    monkeypatch.setenv(constants.CODEX_HOME_ENV, str(tmp_path / "codex"))
     monkeypatch.setenv(constants.HOME_ENV, str(tmp_path / "rezunate"))
     return tmp_path
 
@@ -124,6 +125,57 @@ class TestInstall:
 
         assert cli.main(["install"]) == 0
         assert len(settings(home)["hooks"]["PreToolUse"]) == 2
+
+
+class TestCodex:
+    def codex_hooks(self, home) -> dict:
+        return json.loads((home / "codex" / "hooks.json").read_text())
+
+    def test_registers_both_events_in_hooks_json(self, home, project):
+        assert cli.main(["install", "--agent", "codex"]) == 0
+        hooks = self.codex_hooks(home)["hooks"]
+
+        assert set(hooks) == set(cli.HOOK_EVENTS)
+        assert hooks["PostToolUse"][0]["hooks"][0]["command"].endswith("hook --agent codex")
+        assert settings(home) == {}, "Claude Code's settings must be left alone"
+
+    def test_project_scope_writes_locally(self, home, project):
+        cli.main(["install", "--agent", "codex", "--scope", "project"])
+        assert (project / ".codex" / "hooks.json").exists()
+
+    def test_uninstall_removes_our_hook(self, home, project):
+        cli.main(["install", "--agent", "codex"])
+        assert cli.main(["uninstall", "--agent", "codex"]) == 0
+        assert "hooks" not in self.codex_hooks(home)
+
+    def test_install_without_an_agent_covers_every_agent_found(self, home, project):
+        (home / "codex").mkdir()
+        assert cli.main(["install"]) == 0
+        assert "hooks" in settings(home)
+        assert "hooks" in self.codex_hooks(home)
+
+    def test_install_without_an_agent_skips_codex_when_absent(self, home, project):
+        cli.main(["install"])
+        assert "hooks" in settings(home)
+        assert not (home / "codex" / "hooks.json").exists()
+
+    def test_naming_an_agent_installs_for_it_alone(self, home, project):
+        (home / "codex").mkdir()
+        cli.main(["install", "--agent", "claude"])
+        assert "hooks" in settings(home)
+        assert not (home / "codex" / "hooks.json").exists()
+
+    def test_uninstall_without_an_agent_removes_both(self, home, project):
+        (home / "codex").mkdir()
+        cli.main(["install"])
+        assert cli.main(["uninstall"]) == 0
+        assert "hooks" not in settings(home)
+        assert "hooks" not in self.codex_hooks(home)
+
+    def test_status_counts_a_codex_install(self, home, project, capsys):
+        cli.main(["install", "--agent", "codex"])
+        cli.main(["status"])
+        assert "NOT INSTALLED" not in capsys.readouterr().out
 
 
 class TestUninstall:

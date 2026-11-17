@@ -740,6 +740,47 @@ class TestEndToEnd:
         assert token in second
 
 
+class TestCodexReply:
+    """Codex cannot rewrite output in place, so PostToolUse replies become a `block`."""
+
+    def test_a_rewritten_string_becomes_the_reason(self):
+        reply = hook._replace_output("[PERSON_1] called.")
+        assert hook._as_codex_output(reply) == {
+            "decision": "block",
+            "reason": "[PERSON_1] called.",
+        }
+
+    def test_a_structured_result_is_sent_as_json(self):
+        reply = hook._replace_output({"stdout": "[PERSON_1]", "exit_code": 0})
+        reason = hook._as_codex_output(reply)["reason"]
+        assert json.loads(reason) == {"stdout": "[PERSON_1]", "exit_code": 0}
+
+    def test_a_pre_tool_use_reply_passes_through(self):
+        reply = hook._deny("protected")
+        assert hook._as_codex_output(reply) == reply
+
+    def test_a_protected_cat_comes_back_masked(self, project, monkeypatch, capsys):
+        monkeypatch.setattr(
+            hook, "redact_all", lambda texts, workspace="": dict.fromkeys(texts, "[NAME], [PHONE]")
+        )
+        payload = {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "cwd": str(project),
+            "tool_input": {"command": "cat clients/acme.md"},
+            "tool_response": "Ali Hassan, +971 50 123 4567",
+        }
+        monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+
+        with pytest.raises(SystemExit):
+            hook.main("codex")
+
+        assert json.loads(capsys.readouterr().out) == {
+            "decision": "block",
+            "reason": "[NAME], [PHONE]",
+        }
+
+
 class TestProcessContract:
     """Whatever happens, exit 0 and print either valid JSON or nothing."""
 

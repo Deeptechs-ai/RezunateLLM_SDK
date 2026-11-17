@@ -12,7 +12,7 @@ Get an API key and learn more at [rezunatellm.com](https://rezunatellm.com).
 | Local regex guardrails (block / flag PII in inputs and outputs) | **Free** | Nothing — runs client-side |
 | Server-side PII detection | Hosted | Rezunate API key |
 | Prompt management with versioning  | Hosted | Rezunate API key |
-| `rezunate-guard` — PII redaction for Claude Code, no code required | Hosted | Rezunate API key |
+| `rezunate-guard` — PII redaction for Claude Code and Codex, no code required | Hosted | Rezunate API key |
 
 You only need a Rezunate API key for the hosted features.
 
@@ -393,19 +393,52 @@ response = gateway.chat_complete(
 )
 ```
 
-## Claude Code PII Guard
+## Claude Code & Codex PII Guard
 
-`rezunate-guard` redacts PII from your files **before Claude Code sends them to the
-model**. It needs no code — you point it at the folders holding personal data and it
+`rezunate-guard` redacts PII from your files **before Claude Code or Codex sends them
+to the model**. It needs no code — you point it at the folders holding personal data and it
 works from then on.
 
 ```bash
 cd your-project
-rezunate-guard install     # register the hooks with Claude Code
+rezunate-guard install     # register the hooks with Claude Code and/or Codex, whichever you have
 rezunate-guard init        # write .rezunate-guard.yaml
 rezunate-guard login       # save your Rezunate API key for this project
 rezunate-guard status      # confirm protection is actually on
 ```
+
+`install` sets up every agent it finds: Claude Code if `~/.claude` exists, Codex if
+`~/.codex` exists. If it finds neither, it sets up Claude Code. To set up just one, name
+it with `--agent`:
+
+```bash
+rezunate-guard install                  # every agent found: Claude Code, Codex or both
+rezunate-guard install --agent claude   # Claude Code only (~/.claude/settings.json)
+rezunate-guard install --agent codex    # Codex only (~/.codex/hooks.json)
+```
+
+`uninstall` takes the same option, and without it removes the hook from both.
+
+### Using it with Codex
+
+```bash
+rezunate-guard install --agent codex                    # writes ~/.codex/hooks.json
+rezunate-guard install --agent codex --scope project    # or .codex/hooks.json, this project only
+```
+
+Codex does not run a hook until you approve it. Open Codex, type `/hooks`, review the
+`rezunate-guard` entries and trust them. Until you do, **nothing is redacted**. Codex
+asks again only when the hook command changes, for example after reinstalling from a
+different environment.
+
+Codex reads files through shell commands such as `cat`. Text output from a protected
+file is redacted before the model sees it. A command that reads a PDF, Word file or
+other binary file is refused, and the model is pointed to a redacted copy to read
+instead.
+
+`rezunate-guard status` confirms the hook is registered, but it cannot see whether you
+have trusted it in Codex. To check end to end, ask Codex to `cat` a file in a protected
+folder and confirm personal data comes back as placeholders.
 
 Then list the folders to protect:
 
@@ -443,13 +476,13 @@ guardrail settings, or results from the last day will still reflect the old ones
 
 | Command | What it does |
 |---|---|
-| `rezunate-guard install` | register the hooks in Claude Code's `settings.json` |
+| `rezunate-guard install [--agent claude\|codex]` | register the hooks in Claude Code's `settings.json` and Codex's `hooks.json`, or only the agent named |
 | `rezunate-guard init` | write a `.rezunate-guard.yaml` template here |
 | `rezunate-guard login` | save this project's API key to `~/.rezunate/credentials`; run it inside the project, after `init` |
 | `rezunate-guard status` | report whether anything is actually being protected |
 | `rezunate-guard check <paths>` | show whether given paths would be scanned, and why |
 | `rezunate-guard cache [--clear]` | show what has been scanned before, or forget it |
-| `rezunate-guard uninstall` | remove them again, leaving other hooks alone |
+| `rezunate-guard uninstall [--agent claude\|codex]` | remove them again, from both agents or only the one named, leaving other hooks alone |
 
 **Nothing is scanned unless you name it**, and each scanned file is a billable API call,
 so list only what holds personal data. If the config cannot be read — a typo in the YAML,
@@ -469,3 +502,4 @@ non-zero, so check it after editing the config.
 | `REZUNATE_LLM_BASE_URL` | Rezunate API base URL (default `https://rezunatellm.com`) |
 | `REZUNATE_HOME` | Where `rezunate-guard` keeps its key and log (default `~/.rezunate`) |
 | `CLAUDE_CONFIG_DIR` | Where `rezunate-guard install` writes hook settings (default `~/.claude`) |
+| `CODEX_HOME` | Where `rezunate-guard install` writes Codex hooks (default `~/.codex`) |
